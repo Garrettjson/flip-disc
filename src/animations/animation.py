@@ -12,7 +12,6 @@ class Animation(ABC):
         self.rows = rows
         self.cols = cols
         self.shape = (rows, cols)
-        self.frame = Frame(**kwargs)
         self.nxtfrm = self.next_frame()
 
     def __next__(self) -> Frame:

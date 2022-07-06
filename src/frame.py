@@ -27,8 +27,7 @@ class Frame:
         - data (np.ndarray): A 2d numpy array of size SHAPE
     """
 
-    BGRND = 0
-    FRGND = 1
+    BGRND, FRGND = 0, 1
     BW_THRESHOLD = 165
     SHAPE = (28, 28)
 
@@ -166,7 +165,6 @@ class Frame:
         """
         TODO: comment
         """
-        
         data = Frame._process_data(img, scaling, base_coord)
         return cls(data)
 
