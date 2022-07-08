@@ -1,6 +1,6 @@
 from __future__ import annotations
 from aioserial import AioSerial
-from src.panel import Panel
+from panel import Panel
 from typing import Tuple, Dict
 
 

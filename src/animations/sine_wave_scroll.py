@@ -1,6 +1,6 @@
 import numpy as np
-from src.animations.animation import Animation
-from src.frame import Frame
+from animations.animation import Animation
+from frame import Frame
 from typing import Iterator, Tuple
 
 class SineWaveScroll(Animation):

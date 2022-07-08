@@ -1,5 +1,5 @@
 from abc import ABC, abstractmethod
-from src.frame import Frame
+from frame import Frame
 import matplotlib.pyplot as plt
 from typing import Iterator
 
@@ -7,8 +7,8 @@ class Animation(ABC):
     """
     TODO: Comment
     """
-    def __init__(self, frame_rate: int=15, rows: int=28, cols: int=28, **kwargs):
-        self.frame_rate = frame_rate
+    def __init__(self, fps: int=15, rows: int=28, cols: int=28, **kwargs):
+        self.fps = fps
         self.rows = rows
         self.cols = cols
         self.shape = (rows, cols)

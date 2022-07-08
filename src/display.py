@@ -1,8 +1,8 @@
 from __future__ import annotations
 import numpy as np
 import numpy.typing as npt
-from src.panel import Panel
-from src.frame import Frame
+from panel import Panel
+from frame import Frame
 from typing import Any
 
 
