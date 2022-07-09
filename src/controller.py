@@ -4,16 +4,21 @@ from display import Display
 from driver import Driver
 from frame import Frame
 from animations.animation import Animation
+from datetime import datetime
 from typing import List
 
 class Controller:
     """
     TODO: comment
     """
+    MAX_FPS = 15
+    MAX_FRAME_RATE_MS = (1/MAX_FPS) * 1e3
 
     def __init__(self, driver: Driver, display: Display):
         self.driver = driver
         self.display = display
+        self.last_frame_at = datetime.now()
+        
 
     def __enter__(self) -> Controller:
         self.driver.__enter__()
@@ -42,10 +47,20 @@ class Controller:
 
     async def show_frame(self, frame: Frame) -> List[int]:
         self.display.set_display(frame)
-        return await self._transmit_display()
+
+        # sleep so we don't exceed MAX_FPS
+        elapsed_time_ms = (datetime.now() - self.last_frame_at).microseconds / 1e3
+        if elapsed_time_ms <= self.MAX_FRAME_RATE_MS:
+            t_ms = self.MAX_FRAME_RATE_MS - elapsed_time_ms
+            await asyncio.sleep(t_ms / 1e3)
+
+        res = await self._transmit_display()
+        self.last_frame_at = datetime.now()
+        return res
 
 
     async def play_animation(self, anim: Animation) -> None:
+        # 1 second buffer of frames
         q = asyncio.Queue(maxsize=anim.fps)
         asyncio.create_task(self._show_frames(q))
         await self._populate_buffer(q, anim)
