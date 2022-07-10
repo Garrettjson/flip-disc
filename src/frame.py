@@ -29,7 +29,7 @@ class Frame:
 
     BGRND, FRGND = 0, 1
     BW_THRESHOLD = 165
-    SHAPE = (28, 28)
+    SHAPE = (14, 28)
 
     def __init__(self, data: np.ndarray=np.full(SHAPE, BGRND)):
         self.data = data.astype(int)

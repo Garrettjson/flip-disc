@@ -31,7 +31,7 @@ class Driver:
 
     
     def __enter__(self) -> Driver:
-        self.connection: AioSerial = AioSerial(self.port, self.speed).open()  # type: ignore
+        self.connection: AioSerial = AioSerial(self.port, self.speed)
         return self
 
 
@@ -39,16 +39,16 @@ class Driver:
         self.connection.close()
 
     
-    async def transmit(self, pnl: Panel) -> int:  # TODO: make sure this is actually async, could make this ansync.to_thread() if not
+    async def transmit(self, pnl: Panel) -> bool:
         """
         Asynchronously makes serial write calls to the flip disc display over the rs485 protocol.
         Since serial operations are comparatively slow, making this non-blocking code frees up CPU time.
 
+        Returns true if length of bytes transmitted is equal to length of bytes in the message
         TODO: comment
         """
         HEADER = bytes([0x80])
         EOT = bytes([0x8f])
         msg = HEADER + self.cfg + pnl.address + pnl.data + EOT
-        # TODO: I think write returns the length of the message written, if it does, we should check that the length of the message
-        #       written is the same as the length of the message sent, we should return the boolean expression of that check
-        return await self.connection.write_async(msg)
+        success = await self.connection.write_async(msg) == len(msg)
+        return success

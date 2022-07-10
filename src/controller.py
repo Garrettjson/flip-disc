@@ -28,7 +28,7 @@ class Controller:
         self.driver.__exit__(exc_type, exc_value, tb)
 
 
-    async def _transmit_display(self) -> List[int]:
+    async def _transmit_display(self) -> List[bool]:
         # TODO: if all entries in the dict are true, return true else false
         return [await self.driver.transmit(panel) for panel in self.display.panels.flatten()]
 
@@ -45,13 +45,13 @@ class Controller:
             await self.show_frame(frm)
 
 
-    async def show_frame(self, frame: Frame) -> List[int]:
+    async def show_frame(self, frame: Frame) -> List[bool]:
         self.display.set_display(frame)
 
         # sleep so we don't exceed MAX_FPS
-        elapsed_time_ms = (datetime.now() - self.last_frame_at).microseconds / 1e3
-        if elapsed_time_ms <= self.MAX_FRAME_RATE_MS:
-            t_ms = self.MAX_FRAME_RATE_MS - elapsed_time_ms
+        elapsed_ms = (datetime.now() - self.last_frame_at).microseconds / 1e3
+        if elapsed_ms <= self.MAX_FRAME_RATE_MS:
+            t_ms = self.MAX_FRAME_RATE_MS - elapsed_ms
             await asyncio.sleep(t_ms / 1e3)
 
         res = await self._transmit_display()
@@ -60,7 +60,7 @@ class Controller:
 
 
     async def play_animation(self, anim: Animation) -> None:
-        # 1 second buffer of frames
+        # maintain a 1 second buffer of frames
         q = asyncio.Queue(maxsize=anim.fps)
         asyncio.create_task(self._show_frames(q))
         await self._populate_buffer(q, anim)
