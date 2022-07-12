@@ -1,6 +1,5 @@
 from __future__ import annotations
 import numpy as np
-import numpy.typing as npt
 from panel import Panel
 from frame import Frame
 from typing import Any
@@ -10,7 +9,7 @@ class Display:
     """
     TODO: comment
     """
-    def __init__(self, panels: npt.NDArray[Any]):
+    def __init__(self, panels: np.ndarray):
         ROW_INDX, COL_INDX = 0, 1
 
         self.panels = panels

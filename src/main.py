@@ -12,6 +12,13 @@ async def main():
     drv = Driver()
     with Controller(drv, disp) as c:
         await c.play_animation(noise)
+
+    # from animations.n_body import NBody
+    # n = NBody.from_number(3, 10)
+    # next(n)
+    # next(n)
+    # next(n)
+    # next(n)
         
 
 if __name__ == "__main__":

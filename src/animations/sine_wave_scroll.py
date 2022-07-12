@@ -27,8 +27,10 @@ class SineWaveScroll(Animation):
         TODO: Comment
         """
         BGRND, FRGND = 0, 1
+        
+        arr = np.full(self.shape, BGRND)
         while True:
-            arr = np.full(self.shape, BGRND)
+            arr.fill(BGRND)
             for row, col in self._calc_pts():
                 arr[row][col] = FRGND
             yield Frame(arr)

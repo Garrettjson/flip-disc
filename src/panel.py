@@ -47,7 +47,7 @@ class Panel:
     def show(self) -> None:
         """
         Visualizes data for the purpose of debugging. We need to convert the byte array back
-        into a list of 1s and 0s (undo the `_binary_list_to_int` function) so that it can be
+        into a list of 1s and 0s (undoes the `_binary_list_to_int` function) so that it can be
         displayed
         """
         arr = np.array([[int(b) for b in format(i, f"0{self.ROWS+1}b")] for i in self.data])

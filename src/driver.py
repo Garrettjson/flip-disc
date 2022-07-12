@@ -28,7 +28,6 @@ class Driver:
         self.cfg = CFG_MAP[(msg_bytes, instant_refresh)]
         self.speed = speed
 
-
     
     def __enter__(self) -> Driver:
         self.connection: AioSerial = AioSerial(self.port, self.speed)
@@ -44,7 +43,8 @@ class Driver:
         Asynchronously makes serial write calls to the flip disc display over the rs485 protocol.
         Since serial operations are comparatively slow, making this non-blocking code frees up CPU time.
 
-        Returns true if length of bytes transmitted is equal to length of bytes in the message
+        Returns:
+            True if length of bytes transmitted is equal to length of bytes in the message, else False
         TODO: comment
         """
         HEADER = bytes([0x80])

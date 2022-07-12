@@ -7,7 +7,7 @@ class Animation(ABC):
     """
     TODO: Comment
     """
-    def __init__(self, fps: int=15, rows: int=28, cols: int=28, **kwargs):
+    def __init__(self, fps: int=15, rows: int=28, cols: int=28):
         self.fps = fps
         self.rows = rows
         self.cols = cols
@@ -25,5 +25,6 @@ class Animation(ABC):
         ...
 
     def play(self) -> None:
+        # TODO: utility function for debuging animations
         fig = plt.figure()
         
