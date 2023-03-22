@@ -62,7 +62,7 @@ class NBody(Animation):
         We then turn our force into a vector: Fv = F * (P1 - P2) / R^2, where:
             - F : force from above step
             - P1: (x,y) position of particle 1
-            - p2: (x,y) position of particle 2
+            - P2: (x,y) position of particle 2
             - R : euclidean distance between particles
 
         Lastly, we caclulate the particle's change in velocity: Dv = Fv / M1, where:
@@ -73,8 +73,12 @@ class NBody(Animation):
         G * M2 * (P1 - P2) / R^3
         """
         dp = p1.pos - p2.pos
-        r = np.dot(dp.T, dp)
-        p1.vel += -G * p2.mass * dp / r**3
+        r = np.sqrt(np.dot(dp.T, dp)) + 1
+
+        dv = -G * p2.mass * dp / r**3 if r != 0 else 0
+        if r < p1.radius + p2.radius:
+            dv *= -1
+        p1.vel += dv
         # TODO: logic to avoid collisions and bounce off walls
 
 
@@ -89,7 +93,24 @@ class NBody(Animation):
             p.pos += p.vel
 
 
-    def next_frame(self) -> Iterator[Frame]: 
+    def next_frame(self) -> Iterator[Frame]:
+        """
+        TODO: Comment
+        """
+        
+        BGRND, FRGND = 0, 1
+        ROW_INDX, COL_INDX = 0, 1
+        
+        arr = np.full(self.shape, BGRND)
+        i=0
         while True:
             self._update_velocties()
             self._update_positions()
+            
+            arr.fill(BGRND)
+            for p in self.particles:
+                row = round(p.pos[ROW_INDX])
+                col = round(p.pos[COL_INDX])
+                if 0 <= row < self.rows and 0 <= col < self.cols:
+                    arr[row][col] = FRGND
+            yield Frame(arr)

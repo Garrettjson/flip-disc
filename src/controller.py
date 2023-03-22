@@ -1,4 +1,5 @@
 from __future__ import annotations
+import yaml
 import asyncio
 from display import Display
 from driver import Driver
@@ -11,8 +12,10 @@ class Controller:
     """
     TODO: comment
     """
-    MAX_FPS = 15
-    MAX_FRAME_RATE_MS = (1/MAX_FPS) * 1e3
+    with open("config.yaml", "r") as f:
+        config = yaml.safe_load(f)
+        MAX_FPS = config["display-fps"]
+        MAX_FRAME_RATE_MS = (1/MAX_FPS) * 1e3
 
     def __init__(self, driver: Driver, display: Display):
         self.driver = driver

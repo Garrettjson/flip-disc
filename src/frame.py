@@ -1,4 +1,5 @@
 from __future__ import annotations
+import yaml
 import cv2
 import numpy as np
 import matplotlib.pyplot as plt
@@ -29,7 +30,11 @@ class Frame:
 
     BGRND, FRGND = 0, 1
     BW_THRESHOLD = 165
-    SHAPE = (14, 28)
+    with open("config.yaml", "r") as f:
+        config = yaml.safe_load(f)
+        x, y = config["display-shape"]
+        rows, cols = config["panel-shape"]
+        SHAPE = (rows*y, cols*x)
 
     def __init__(self, data: np.ndarray=np.full(SHAPE, BGRND)):
         self.data = data.astype(int)

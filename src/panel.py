@@ -1,3 +1,4 @@
+import yaml
 import numpy as np
 import matplotlib.pyplot as plt
 
@@ -5,7 +6,9 @@ class Panel:
     """
     TODO: comment
     """
-    ROWS, COLS = 7, 28
+    with open("config.yaml", "r") as f:
+        config = yaml.safe_load(f)
+        ROWS, COLS = config["panel-shape"]
 
     def __init__(
         self,
@@ -50,7 +53,7 @@ class Panel:
         into a list of 1s and 0s (undoes the `_binary_list_to_int` function) so that it can be
         displayed
         """
-        arr = np.array([[int(b) for b in format(i, f"0{self.ROWS+1}b")] for i in self.data])
+        arr = np.array([[int(b) for b in format(i, f"0{self.rows+1}b")] for i in self.data])
         plt.axis('off')
         plt.imshow(~arr.T, cmap='gray')
         plt.show()
