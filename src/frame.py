@@ -34,9 +34,9 @@ class Frame:
         config = yaml.safe_load(f)
         x, y = config["display-shape"]
         rows, cols = config["panel-shape"]
-        SHAPE = (rows*y, cols*x)
+        SHAPE = (rows * y, cols * x)
 
-    def __init__(self, data: np.ndarray=np.full(SHAPE, BGRND)):
+    def __init__(self, data: np.ndarray = np.full(SHAPE, BGRND)):
         self.data = data.astype(int)
 
     def __add__(self, img: Frame) -> Frame:
@@ -55,7 +55,7 @@ class Frame:
         return Frame(data)
 
     def flip(self, axis: str) -> Frame:
-        axs_map = {'x': 1, 'y': 0}
+        axs_map = {"x": 1, "y": 0}
         data = np.flip(self.data, axs_map[axis])
         return Frame(data)
 
@@ -64,30 +64,28 @@ class Frame:
         return Frame(data)
 
     @classmethod
-    def _resize(cls, img: np.ndarray, shape: Tuple[int, int]=SHAPE) -> np.ndarray:
+    def _resize(cls, img: np.ndarray, shape: Tuple[int, int] = SHAPE) -> np.ndarray:
         return cv2.resize(img, shape)
-
 
     @classmethod
     def _binarize_values(
         cls,
         img: np.ndarray,
-        threshold: int=BW_THRESHOLD,
-        foreground: int=FRGND,
-        background: int=BGRND,
+        threshold: int = BW_THRESHOLD,
+        foreground: int = FRGND,
+        background: int = BGRND,
     ) -> np.ndarray:
         """
         TODO: comment
         """
         return np.where(img < threshold, foreground, background)
 
-
     @classmethod
     def _pad_frame(
         cls,
         img: np.ndarray,
-        value: int=255,  # white
-        base_coord: Tuple[int, int]=(0,0),  # (x,y)
+        value: int = 255,  # white
+        base_coord: Tuple[int, int] = (0, 0),  # (x,y)
     ) -> np.ndarray:
         """
         Increases the size of the Frame to be of size SHAPE by padding the Frame with a single
@@ -118,22 +116,21 @@ class Frame:
         assert (
             bottom_pad >= 0
         ), f"image height + base_coord y ({coord_y + img_y}) is greater than frame height ({SHAPE_Y})"
-        
+
         return np.pad(
             img, ((top_pad, bottom_pad), (left_pad, right_pad)), constant_values=value  # type: ignore
         )
-
 
     @classmethod
     def _process_data(
         cls,
         img: np.ndarray,
-        scaling: str="resize",
-        base_coord: Tuple[int, int]=(0,0),  # (x,y)
+        scaling: str = "resize",
+        base_coord: Tuple[int, int] = (0, 0),  # (x,y)
     ) -> np.ndarray:
         """
         TODO: fix comment
-        
+
         Args:
             - name (str): the name of the file containing the image
             - path (str): the path to the folder where the image is located
@@ -148,24 +145,23 @@ class Frame:
         scalings = ["resize", "pad"]
         assert scaling in scalings, f"scaling must be one of: {scalings}"
 
-        if scaling == "resize" and base_coord != (0,0):
+        if scaling == "resize" and base_coord != (0, 0):
             warn("if scaling == 'resize' then base_coord will be ignored")
 
         if scaling == "resize" and img.shape != cls.SHAPE:
             img = Frame._resize(img, cls.SHAPE)
-            
+
         elif scaling == "pad":
             img = Frame._pad_frame(img=img, base_coord=base_coord)
 
         return Frame._binarize_values(img)
 
-
     @classmethod
     def from_array(
         cls,
         img: np.ndarray,
-        scaling: str="resize",
-        base_coord: Tuple[int, int]=(0,0),  # (x,y))
+        scaling: str = "resize",
+        base_coord: Tuple[int, int] = (0, 0),  # (x,y))
     ) -> Frame:
         """
         TODO: comment
@@ -173,14 +169,13 @@ class Frame:
         data = Frame._process_data(img, scaling, base_coord)
         return cls(data)
 
-
     @classmethod
     def from_image(
         cls,
         name: str,
-        path: str="",
-        scaling: str="resize",
-        base_coord: Tuple[int, int]=(0,0),  # (x,y)
+        path: str = "",
+        scaling: str = "resize",
+        base_coord: Tuple[int, int] = (0, 0),  # (x,y)
     ) -> Frame:
         """
         TODO: comment
@@ -190,8 +185,7 @@ class Frame:
         data = Frame._process_data(img, scaling, base_coord)
         return cls(data)
 
-
     def show(self) -> None:
-        plt.axis('off')
-        plt.imshow(~self.data, cmap='gray')
+        plt.axis("off")
+        plt.imshow(~self.data, cmap="gray")
         plt.show()

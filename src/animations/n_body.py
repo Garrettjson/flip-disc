@@ -8,36 +8,40 @@ from itertools import combinations
 from typing import List, Iterator
 
 
-@ dataclass
+@dataclass
 class Particle:
     """
     TODO: comment
     """
+
     pos_x: InitVar[float]
     pos_y: InitVar[float]
-    density: float = 1.
-    radius: float = 1.
+    density: float = 1.0
+    radius: float = 1.0
     mass: float = density * np.pi * radius**3
-    vel: npt.NDArray[np.float64] = field(default_factory=lambda: np.array([0., 0.]))  # (x, y)
-    pos: npt.NDArray[np.float64] = field(default_factory=lambda: np.array([0., 0.]))  # (x, y)
+    vel: npt.NDArray[np.float64] = field(
+        default_factory=lambda: np.array([0.0, 0.0])
+    )  # (x, y)
+    pos: npt.NDArray[np.float64] = field(
+        default_factory=lambda: np.array([0.0, 0.0])
+    )  # (x, y)
 
     def __post_init__(self, pos_x, pos_y):
         self.pos = np.array([pos_x, pos_y], dtype=float)
-            
+
 
 class NBody(Animation):
     """
     TODO: comment
     """
 
-    def __init__(self, particles: List[Particle],  grav: float=1, **kwargs):
+    def __init__(self, particles: List[Particle], grav: float = 1, **kwargs):
         super().__init__(**kwargs)
         self.particles = particles
         self.grav = grav
 
-
     @classmethod
-    def from_number(cls, n: int, grav: float=1) -> NBody:
+    def from_number(cls, n: int, grav: float = 1) -> NBody:
         """
         Creates a list of n particle objects at random (x,y) coordinates within
         within the bounds of the frame
@@ -48,7 +52,6 @@ class NBody(Animation):
         particles = [Particle(x[i], y[i]) for i in range(n)]
         return cls(particles, grav)
 
-    
     def _calc_velocity(self, p1: Particle, p2: Particle, G: float) -> None:
         """
         Caclulates a particle's velocity based on gravitational attraction with another particle.
@@ -81,32 +84,29 @@ class NBody(Animation):
         p1.vel += dv
         # TODO: logic to avoid collisions and bounce off walls
 
-
     def _update_velocties(self) -> None:
         for p1, p2 in combinations(self.particles, 2):
             self._calc_velocity(p1, p2, self.grav)
             self._calc_velocity(p2, p1, self.grav)
 
-
     def _update_positions(self) -> None:
         for p in self.particles:
             p.pos += p.vel
-
 
     def next_frame(self) -> Iterator[Frame]:
         """
         TODO: Comment
         """
-        
+
         BGRND, FRGND = 0, 1
         ROW_INDX, COL_INDX = 0, 1
-        
+
         arr = np.full(self.shape, BGRND)
-        i=0
+        i = 0
         while True:
             self._update_velocties()
             self._update_positions()
-            
+
             arr.fill(BGRND)
             for p in self.particles:
                 row = round(p.pos[ROW_INDX])

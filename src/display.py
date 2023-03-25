@@ -9,6 +9,7 @@ class Display:
     """
     TODO: comment
     """
+
     def __init__(self, panels: np.ndarray):
         ROW_INDX, COL_INDX = 0, 1
 
@@ -18,7 +19,6 @@ class Display:
         self._x_pixels = sum([p.shape[ROW_INDX] for p in panels[:, 0]])
         self._y_pixels = sum([p.shape[COL_INDX] for p in panels[0, :]])
         self._pixels = self._x_pixels * self._y_pixels
-        
 
     @classmethod
     def from_shape(cls, x_panels: int, y_panels: int, **kwargs) -> Display:
@@ -32,16 +32,18 @@ class Display:
             - x_panels (int): number of panels in a single column
             - y_panels (int): number of panels in a single row
         """
-        panels = np.array([Panel(i.to_bytes(1, "big"), **kwargs) for i in range(x_panels * y_panels)])
+        panels = np.array(
+            [Panel(i.to_bytes(1, "big"), **kwargs) for i in range(x_panels * y_panels)]
+        )
         return cls(panels.reshape(y_panels, x_panels))
-
 
     def set_display(self, frame: Frame) -> None:
         """
         TODO: comment
         """
-        assert (
-            frame.data.shape == (self._x_pixels, self._y_pixels)
+        assert frame.data.shape == (
+            self._x_pixels,
+            self._y_pixels,
         ), f"display and frame must be the same shape. display shape: {(self._x_pixels, self._y_pixels)}, frame shape: {frame.data.shape}"
 
         x = self._x_pixels // self._x_panels
@@ -51,4 +53,3 @@ class Display:
         for row in range(self._x_panels):
             for col in range(self._y_panels):
                 self.panels[row][col].set_data(rshpd[row][col])
-        

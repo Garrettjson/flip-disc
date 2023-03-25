@@ -1,6 +1,8 @@
 import cv2
+import math
+import yaml
 import numpy as np
-from typing import Dict
+from typing import Dict, Union
 
 
 class Letter:
@@ -28,6 +30,7 @@ class Alphabet(Dict[str, Letter]):
         - letter_width (int): the number of pixels across each letter in the bitmap alphabet is
         - letter_height (int): the number of pixels tall each letter in the bitmap alphabet is
     """
+
     def __init__(
         self,
         name: str = "standard.bmp",
@@ -51,32 +54,77 @@ class Alphabet(Dict[str, Letter]):
 
         i = 0
         for row in range(padding, img.shape[0], letter_height + padding + margin):
-            for col in range(padding, img.shape[1]-1, letter_width + padding + margin):
+            for col in range(
+                padding, img.shape[1] - 1, letter_width + padding + margin
+            ):
                 if i >= letters:
                     return
                 char = chr(ascii_start + i)
                 self[char] = Letter(
                     char=char,
-                    data=img[row:row+letter_height, col:col+letter_width],
+                    data=img[row : row + letter_height, col : col + letter_width],
                     height=letter_height,
                     width=letter_width,
                 )
                 i += 1
 
 
-class Text:
-    def __init__(self, text: str, spacing: int = 1, alphabet: Alphabet = Alphabet()):
-        total_letter_width = sum(alphabet[char].width for char in text)
-        
+class TextBox:
+    with open("config.yaml", "r") as f:
+        config = yaml.safe_load(f)
+        x, y = config["display-shape"]
+        rows, cols = config["panel-shape"]
+
+    def __init__(
+        self,
+        text: str,
+        letter_spacing: int = 1,
+        line_spacing: int = 2,
+        wrap: bool = False,
+        box_width: Union[int, None] = None,
+        alphabet: Alphabet = Alphabet(),
+    ):
+        total_letter_len = alphabet.letter_width * len(text)
+        text_data_len = total_letter_len + (len(text) * letter_spacing) - letter_spacing
+
         self.text = text
-        self.data = np.full(
-            (alphabet.letter_height, total_letter_width + (len(text) * spacing) - spacing),
-            alphabet.bgrnd
+
+        if wrap:
+            box_width = box_width if box_width is not None else int(self.x * self.cols)
+            letters_per_row = (box_width + letter_spacing) // (
+                alphabet.letter_width + letter_spacing
+            )
+            box_rows = math.ceil(len(text) / letters_per_row)
+            box_height = (
+                box_rows * (alphabet.letter_height + line_spacing) - line_spacing
+            )
+        else:
+            box_width = text_data_len
+            box_height = alphabet.letter_height
+
+        self._set_data(
+            text, letter_spacing, line_spacing, box_width, box_height, alphabet
         )
 
-        offset = 0
+    def _set_data(
+        self,
+        text: str,
+        letter_spacing: int,
+        line_spacing: int,
+        box_width: int,
+        box_height: int,
+        alphabet: Alphabet,
+    ):
+        self.data = np.full((box_height, box_width), alphabet.bgrnd)
+
+        x_offset, y_offset = 0, 0
         for char in text:
             letter = alphabet[char]
-            self.data[:, offset:offset+letter.width] = letter.data
-            offset += letter.width + spacing
-        
+            if x_offset + letter.width > box_width:
+                x_offset = 0
+                y_offset += letter.height + line_spacing
+
+            self.data[
+                y_offset : y_offset + letter.height, x_offset : x_offset + letter.width
+            ] = letter.data
+            x_offset += letter.width + letter_spacing

@@ -6,7 +6,9 @@ from typing import Iterator
 
 
 class SimplexNoise(Animation):
-    def __init__(self, scale: int=4, step_size: float=0.05, bw_threshold: int=150, **kwargs):
+    def __init__(
+        self, scale: int = 4, step_size: float = 0.05, bw_threshold: int = 150, **kwargs
+    ):
         """
         TODO: Comment
         """
@@ -14,7 +16,6 @@ class SimplexNoise(Animation):
         self.scale = scale
         self.step_size = step_size
         self.bw_threshold = bw_threshold
-
 
     def next_frame(self) -> Iterator[Frame]:
         """
@@ -25,7 +26,7 @@ class SimplexNoise(Animation):
         x = np.arange(self.cols)
 
         while True:
-            arr = noise3array(x/self.scale, y/self.scale, np.array([i]))[0,:,:]
+            arr = noise3array(x / self.scale, y / self.scale, np.array([i]))[0, :, :]
             clrd = (arr + 1) * self.bw_threshold
             yield Frame.from_array(clrd)
             i += self.step_size
