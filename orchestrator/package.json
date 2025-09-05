@@ -1,0 +1,15 @@
+{
+  "name": "flipdisc-orchestrator",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "devDependencies": {
+    "bun-types": "^1.0.0",
+    "@types/bun": "^1.0.0"
+  },
+  "scripts": {
+    "dev": "bun orchestrator/index.ts",
+    "start": "bun run dev"
+  }
+}
+

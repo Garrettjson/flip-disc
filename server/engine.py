@@ -26,6 +26,8 @@ class ServerState:
     - Writes to serial via the provided SerialWriter implementation
     """
 
+    MAX_FPS = 30  # absolute ceiling enforced by server pacing
+
     def __init__(self, cfg: DisplayConfig, fps: int, buffer_ms: int, frame_gap_ms: int, serial_writer: SerialWriter):
         self.cfg = cfg
         self.width = cfg.canvas.width
@@ -35,7 +37,9 @@ class ServerState:
         self.panel_bits: Dict[str, bytes] = {}
 
         # pacing
-        self.default_interval = 1.0 / max(1, fps)
+        # enforce server-side max FPS
+        self.min_interval = 1.0 / float(self.MAX_FPS)
+        self.default_interval = max(1.0 / max(1, fps), self.min_interval)
         cap = max(1, int((buffer_ms / 1000.0) / self.default_interval))
         self.buf: Deque[FrameItem] = deque(maxlen=cap)
         self.frame_gap_ms = max(0, frame_gap_ms)
@@ -78,6 +82,7 @@ class ServerState:
                     self.frame_bits = it.bits
                     self.panel_bits = update_panels(self.frame_bits, self.width, self.height, self.cfg)
                     interval = (it.duration_ms / 1000.0) if it.duration_ms > 0 else self.default_interval
+                    interval = max(interval, self.min_interval)
                 t_write0 = time.perf_counter()
                 await self.serial.write_panels(self.cfg.panels, self.panel_bits)
                 t_write1 = time.perf_counter()

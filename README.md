@@ -67,8 +67,13 @@ Project workflow
 - Start server (reads `config/display.yaml`):
   - `make run-python-server`
   - Viewer at `http://localhost:8080/`
-- Start orchestrator (Node 18+):
-  - `make run-orchestrator`
+- Start orchestrator (Bun):
+  - Install Bun (macOS): `brew install bun` (or see https://bun.sh)
+  - One-time deps: `make bun-setup` (installs bun type packages)
+  - Run: `make run-orchestrator`
+  - Optional: override animation FPS during a session:
+    - `curl -XPOST localhost:8090/fps -H 'Content-Type: application/json' -d '{"fps":20}'`
+    - Clear override (follow server config FPS): `curl -XDELETE localhost:8090/fps`
   - Set active worker: `curl -XPOST localhost:8090/active -H 'Content-Type: application/json' -d '{"id":"bouncing-dot"}'`
 - Start example worker (uses orchestrator by default):
   - `make run-worker`
@@ -78,7 +83,7 @@ Project workflow
 
 
 **Bouncing Dot Demo**
-- Start the server: `make run-python-server` (keep it running; viewer at `http://localhost:8080/`)
+- Start the server: `make run-server` (keep it running; viewer at `http://localhost:8080/`)
 - Start the orchestrator: `make run-orchestrator`
 - Set the active source to the bouncing‑dot worker:
   - `curl -XPOST localhost:8090/active -H 'Content-Type: application/json' -d '{"id":"bouncing-dot"}'`
