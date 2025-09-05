@@ -34,8 +34,7 @@ class Animation(ABC):
         yield from self.nxtfrm
 
     @abstractmethod
-    def next_frame(self) -> Iterator[Frame]:
-        ...
+    def next_frame(self) -> Iterator[Frame]: ...
 
     def play(self) -> None:
         """Convenience function for displaying animation on computer screen"""

@@ -1,0 +1,41 @@
+# Flip‑Disc display topology (human-friendly)
+#
+# This models a virtual canvas and its mapping to physical panels.
+# Each panel can be rotated or flipped relative to the canvas.
+#
+# For your current hardware: two 7x28 panels stacked vertically
+# forming a 14x28 canvas.
+
+version: 1
+
+canvas:
+  width: 28   # columns
+  height: 14  # rows
+
+# Target refresh rate for the display (frames per second)
+fps: 30
+
+panel_size:
+  width: 28   # panel columns
+  height: 7   # panel rows
+
+panels:
+  - id: top
+    address: 1           # RS-485 or logical address
+    origin: { x: 0, y: 0 }
+    size:   { w: 28, h: 7 }
+    orientation: normal   # normal|rot90|rot180|rot270|flipH|flipV
+
+  - id: bottom
+    address: 2
+    origin: { x: 0, y: 7 }
+    size:   { w: 28, h: 7 }
+    orientation: normal
+
+# Optional: serial settings (for later hardware IO)
+serial:
+  device: /dev/ttyUSB0
+  baud: 115200
+  parity: none
+  data_bits: 8
+  stop_bits: 1

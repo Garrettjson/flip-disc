@@ -1,0 +1,50 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Flip‑Disc Viewer (Python)</title>
+    <style>
+      body { font-family: system-ui, sans-serif; background:#111; color:#eee; margin:0; display:flex; flex-direction:column; align-items:center; }
+      header { padding: 10px 16px; width: 100%; background:#222; box-shadow: 0 1px 0 #333; }
+      main { padding: 16px; display:flex; flex-direction:column; align-items:center; gap:12px; }
+      img { image-rendering: pixelated; image-rendering: crisp-edges; border:1px solid #333; background:#fff; }
+      .row { display:flex; gap:8px; align-items:center; }
+      input[type=number] { width: 80px; }
+    </style>
+  </head>
+  <body>
+    <header>
+      <strong>Flip‑Disc Viewer (Python)</strong>
+    </header>
+    <main>
+      <div class="row">
+        <label>Scale: <input id="scale" type="number" min="1" max="64" value="10"/></label>
+        <label>FPS: <input id="fps" type="number" min="1" max="120" value="30"/></label>
+        <button id="apply">Apply</button>
+      </div>
+      <img id="frame" alt="frame" />
+    </main>
+    <script>
+      const img = document.getElementById('frame');
+      const scaleEl = document.getElementById('scale');
+      const fpsEl = document.getElementById('fps');
+      const applyBtn = document.getElementById('apply');
+      let timer = null;
+      function start() {
+        if (timer) clearInterval(timer);
+        const fps = Math.max(1, Math.min(120, Number(fpsEl.value)||30));
+        const scale = Math.max(1, Math.min(64, Number(scaleEl.value)||10));
+        function tick() {
+          const url = `/frame.png?scale=${scale}&_=${Date.now()}`;
+          img.src = url;
+        }
+        tick();
+        timer = setInterval(tick, 1000 / fps);
+      }
+      applyBtn.addEventListener('click', start);
+      start();
+    </script>
+  </body>
+  </html>
+
