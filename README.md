@@ -77,6 +77,18 @@ Project workflow
   - `make uv-sync` (optional `make uv-lock` to commit `server/uv.lock`)
 
 
+**Bouncing Dot Demo**
+- Start the server: `make run-python-server` (keep it running; viewer at `http://localhost:8080/`)
+- Start the orchestrator: `make run-orchestrator`
+- Set the active source to the bouncing‑dot worker:
+  - `curl -XPOST localhost:8090/active -H 'Content-Type: application/json' -d '{"id":"bouncing-dot"}'`
+- Run the demo worker (local Tk preview + posts frames):
+  - `make run-worker`
+- Open the viewer page and you should see the dot animating.
+- Optional: send the worker directly to the server (bypass orchestrator):
+  - `TARGET_URL=http://localhost:8080/ingest/rbm make run-worker`
+
+
 **Server Flags (CLI after `--`)**
 - `--config config/display.yaml`
 - `--fps 30` (overrides config)
