@@ -138,11 +138,8 @@ def create_app(args: Optional[list[str]] = None) -> FastAPI:
         if len(data) - off < need:
             raise HTTPException(status_code=400, detail="short payload")
         # Keep-latest semantics: if full, drop oldest frame and accept the newest
-        if state.buf.maxlen is not None and len(state.buf) >= state.buf.maxlen:
-            try:
-                state.buf.popleft()
-            except Exception:
-                pass
+        if state.buf.maxlen is not None and len(state.buf) >= state.buf.maxlen and len(state.buf) > 0:
+            state.buf.popleft()
         payload = bytes(data[off : off + need])
         state.buf.append(
             FrameItem(bits=payload, seq=hdr.seq, duration_ms=hdr.frame_duration_ms)
@@ -207,21 +204,26 @@ def create_app(args: Optional[list[str]] = None) -> FastAPI:
 
     @app.post("/fps")
     async def set_fps(req: Request):
+        # Parse JSON body
         try:
-            j = await req.json()
-            fps = int(j.get("fps", 0))
+            body = await req.json()
         except Exception:
             raise HTTPException(status_code=400, detail="invalid json")
+        # Coerce fps value
+        fps_val = None if not isinstance(body, dict) else body.get("fps")
+        try:
+            fps = int(fps_val) if fps_val is not None else 0
+        except (ValueError, TypeError):
+            raise HTTPException(status_code=400, detail="bad fps")
         if fps <= 0:
             raise HTTPException(status_code=400, detail="bad fps")
         if fps > state.MAX_FPS:
             raise HTTPException(status_code=400, detail=f"fps exceeds max {state.MAX_FPS}")
         # Update pacing target and reflect in config for clients
         state.default_interval = max(1.0 / float(fps), state.min_interval)
-        try:
-            state.cfg.fps = fps
-        except Exception:
-            pass
+        # set in config if possible; ignore if cfg lacks attribute
+        if hasattr(state.cfg, "fps"):
+            state.cfg.fps = fps  # type: ignore[attr-defined]
         return {"fps": fps, "max_fps": state.MAX_FPS}
 
     @app.delete("/fps")

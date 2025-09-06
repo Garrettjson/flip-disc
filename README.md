@@ -1,123 +1,83 @@
-# Flip‑Disc — End‑to‑End Flip‑Dot Display Stack
+# Flip‑Disc — Drive Flip‑Dot Displays End‑to‑End
 
-This repo contains a complete pipeline to drive a physical flip‑disc (flip‑dot) display: content workers generate frames, an orchestrator selects an active source, and a server attached to the RS‑485 bus handles mapping, pacing, and output. A built‑in viewer and stats endpoints make development fast without hardware.
+Flip‑disc (aka flip‑dot) displays flip small discs to show black/white pixels. This repo provides an end‑to‑end stack to render content and drive real hardware.
 
-**At a glance**
-- Server: Python FastAPI app (RS‑485 writer, ring buffer, FPS pacing, viewer)
-- Orchestrator: Minimal Node service to accept worker frames and forward the active source
-- Workers: Python processes (example: bouncing dot) that post RBM frames
-- Protocol: RBM (Raw Bitmap), 1‑bit packed canvas with a small big‑endian header
+- Server: Python FastAPI app that maps a virtual canvas to physical panels and writes RS‑485 with stable pacing
+- Orchestrator: Bun/TypeScript app that drives workers via WebSocket ticks and forwards frames to the server
+- Workers: Python processes that render frames on demand and post them as 1‑bit RBM bitmaps
 
 
-**Overview**
-- Render text/graphics/video to flip‑discs with smooth timing and predictable behavior.
-- Keep the hardware controller simple and deterministic next to the serial bus (on a Pi).
-- Allow rich content generation from other machines; add a web UI later.
-- Maintain a small server‑side buffer so timing is stable despite network jitter.
+Project Structure
+- `server/`: Display server (pacing, mapping, RS‑485, PNG preview). See `server/README.md`.
+- `orchestrator/`: Worker control plane + simple UI. WS ticks/config, frame forwarding. See `orchestrator/README.md`.
+- `workers/`: Worker SDK and examples (bouncing‑dot, text‑scroll). See `workers/README.md`.
+- `config/display.yaml`: Canvas, panel topology, serial settings.
+- `protocol/rbm_spec.md`: RBM wire format.
 
 
-**Architecture**
-- Server (`server/`)
-  - Owns the RS‑485 serial line, authoritative frame buffer, and pacing.
-  - Accepts frames via HTTP (`POST /ingest/rbm`) in RBM format.
-  - Maps a virtual canvas to physical panels (orientation, tiling) via NumPy.
-  - Enforces FPS and inter‑frame gap; optional inter‑panel serial delay.
-  - Serves a PNG viewer (`/frame.png`) and per‑panel previews (`/debug/panel.png`).
-  - Exposes config (`/config`) and runtime stats (`/stats`).
-- Orchestrator (`orchestrator/`)
-  - Accepts RBM frames from workers at `/workers/:id/frame`.
-  - Tracks an active source (`POST /active`) and forwards frames to the server.
-  - Proxies `/config` to the server for clients.
-  - UI includes a "Video Feed" that proxies `/frame.png` from the server (live output). The preview scale is adjustable in the UI.
-- Workers (`workers/`)
-  - One process per content stream; draw in the virtual canvas and post frames.
-  - Python workers can subclass `WorkerBase` (in `workers/common/base.py`) which handles config, preview, RBM packing, and posting.
-  - Examples: `workers/bouncing_dot/` and `workers/text_scroll/` both use the common base.
+How It Works
+- Orchestrator is the timing authority. It sends WebSocket ticks to the active worker at target FPS and pushes live config.
+- Workers render on ticks and POST RBM frames to the orchestrator ingest endpoint.
+- Orchestrator forwards each frame to the server, patching frame duration to match pacing.
+- Server buffers and writes frames over RS‑485, mapping the canvas to physical panels; a PNG preview is exposed for development.
 
-Why this split
-- Deterministic output: the server buffers and paces locally at the hardware edge.
-- Performance & ergonomics: Python for image/CV work, Node for orchestration/UI.
-- Scalability: multiple workers; orchestrator can switch or mix sources.
+Diagrams
+```mermaid
+sequenceDiagram
+  autonumber
+  participant UI
+  participant ORCH as Orchestrator
+  participant WRK as Worker
+  participant SRV as Server
 
+  UI->>ORCH: POST /active { id }
+  Note over ORCH: Select active source
 
-**Protocol — RBM (Raw Bitmap)**
-- Header (16 bytes, big‑endian): `magic="RB"`, `version=1`, `flags`, `width`, `height`, `seq`, `frame_duration_ms`, `reserved`.
-- Payload: `height * ceil(width/8)` bytes, row‑major, MSB‑first per byte.
-- Sequence wraps at 2^32; `frame_duration_ms=0` uses server FPS.
-- Spec: `protocol/rbm_spec.md:1`.
+  ORCH-->>WRK: WS hello { fps, canvas }
+  ORCH-->>WRK: WS config { ... }
+  loop at target FPS
+    ORCH-->>WRK: WS tick
+    WRK->>ORCH: POST /workers/:id/frame (RBM)
+    ORCH->>SRV: POST /ingest/rbm (patched duration)
+  end
 
+  UI->>ORCH: GET /frame.png?scale=10
+  ORCH->>SRV: GET /frame.png?scale=10
+  SRV-->>ORCH: PNG
+  ORCH-->>UI: PNG
+```
 
-**Configuration**
-- Display topology lives in `config/display.yaml:1`.
-  - `canvas: { width, height }`
-  - `fps: 30` (target refresh rate)
-  - `panel_size: { width, height }`
-  - `panels: [{ id, address, origin: {x,y}, size: {w,h}, orientation }]`
-  - `serial: { device, baud, parity, data_bits, stop_bits }`
-
-**Hardware Panels**
-- The display is two sub-displays (panels), each 7×28 pixels, stacked to form a 14×28 canvas.
-- Each panel has its own RS‑485 address; the bus is wired in parallel.
-- Hardware requires sending a full panel frame when any pixel in that panel changes.
-
-Panel layout (Y increases downward):
-
-  Columns → 0 ……………………………… 27
-  Rows
-    0  +----------------------------+   ← top panel (id: "top", 7×28)
-    1  |                            |
-    2  |          TOP (7×28)        |
-    3  |                            |
-    4  |                            |
-    5  |                            |
-    6  +----------------------------+
-    7  +----------------------------+   ← bottom panel (id: "bottom", 7×28)
-    8  |                            |
-    9  |        BOTTOM (7×28)       |
-   10  |                            |
-   11  |                            |
-   12  |                            |
-   13  +----------------------------+
-
-What the server does today:
-- Treats the whole 14×28 as a virtual canvas, then derives per-panel bitmaps every tick.
-- Sends a full RS‑485 message per panel each tick: `[0x80][cfg][addr][28 data bytes][0x8F]`.
-- This guarantees correctness for all animations and simplifies pacing.
-
-Future optimization (panel‑dirty):
-- Detect if a panel’s bytes are unchanged from the last tick and skip the RS‑485 write for that panel. This halves bus traffic for content localized to one panel.
-- “Dirty‑rects” at panel granularity: instead of arbitrary rectangles, we update at panel‑tile resolution (7×28) to match hardware behavior.
+```mermaid
+flowchart TD
+  subgraph Control
+    ORCH[Orchestrator]
+    WRK[Worker]
+    ORCH -- WS: tick/config --> WRK
+  end
+  subgraph Data
+    WRK -- RBM --> ORCH
+    ORCH -- RBM --> SRV[Server]
+    SRV -- RS-485 --> PANELS[Flip‑Dot Panels]
+  end
+```
 
 
-**Getting Started**
+Getting Started
+- Prereqs: Python 3.11+, uv, Bun
+- Install deps: `make uv-setup` (server), `make uv-setup-workers` (workers), `make bun-setup` (orchestrator)
+- Run (3 terminals):
+  - Server: `make run-server` → http://localhost:8080
+  - Orchestrator: `make run-orchestrator` → http://localhost:8090
+  - Worker: `cd workers && uv run python runner.py text-scroll`
+- UI: Pick an active worker and tweak config at http://localhost:8090 (preview proxies the server’s PNG)
 
-One‑time setup
-- Install uv (fast Python package manager and runner):
-  - macOS: `brew install uv`
-  - Cross‑platform: `curl -Ls https://astral.sh/uv/install.sh | sh`
-- Initialize the server environment and deps:
-  - `make uv-setup`
- - Initialize the workers environment and deps (separate venv):
-   - `make uv-setup-workers`
+Deploy
+- Raspberry Pi setup and systemd units: `deploy/README-systemd.md`
 
-Project workflow (auto‑managed workers)
-- Start server: `make run-server` (viewer at `http://localhost:8080/`)
-- Start orchestrator (first time `make bun-setup`): `make run-orchestrator`
-- Set active worker (orchestrator starts/stops workers):
-  - UI: `http://localhost:8090/` → choose worker → “Set Active”, or
-  - `curl -XPOST localhost:8090/active -H 'Content-Type: application/json' -d '{"id":"bouncing-dot"}'`
-- Optional: override orchestrator FPS:
-  - `curl -XPOST localhost:8090/fps -H 'Content-Type: application/json' -d '{"fps":20}'`
-  - Clear override: `curl -XDELETE localhost:8090/fps`
-- Single activation control: Use the top‑level “Set Active” and “Stop Active” buttons. Per‑worker sections (e.g., Text Scroll) expose config only (no separate activate button).
-- Manual worker control: `POST /workers/:id/start` and `POST /workers/:id/stop`
-- Update deps when `server/pyproject.toml` changes:
-  - `make uv-sync` (optional `make uv-lock` to commit `server/uv.lock`)
- - Update deps when `workers/pyproject.toml` changes:
-  - `make uv-sync-workers` (optional `make uv-lock-workers`)
-
-
-**Bouncing Dot Demo**
+More Docs
+- Server details: `server/README.md`
+- Orchestrator details: `orchestrator/README.md`
+- Worker SDK and examples: `workers/README.md`
 - Start the server and orchestrator (as above), then set `/active` to `bouncing-dot`.
 - The orchestrator will spawn the worker; open the viewer and you should see the dot animating.
 - Optional: to bypass the orchestrator, run the worker manually with `TARGET_URL=http://localhost:8080/ingest/rbm`.

@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 import { serve } from "bun";
+import type { ServerWebSocket } from "bun";
 
 const PORT = Number(Bun.env.PORT ?? '8090');
 const SERVER_URL = Bun.env.SERVER_URL ?? 'http://localhost:8080';
@@ -19,6 +20,9 @@ const state = {
   cooldownUntil: 0,
   canvas: null as Canvas | null,
 };
+
+// WebSocket control channel: track per-worker sockets
+const wsById = new Map<string, ServerWebSocket<{ id: string }>>();
 
 /**
  * Patch RBM header's frame_duration_ms field to match a target FPS.
@@ -73,7 +77,7 @@ const refreshFps = async () => {
   } catch {}
 }
 
-/** Start/Restart the interval that forwards active frames at `state.fps`. */
+/** Start/Restart the interval that drives active worker ticks at `state.fps`. */
 const startTicker = () => {
   if (state.timer) { clearInterval(state.timer); state.timer = null; }
   const interval = Math.max(1, Math.round(1000 / Math.max(1, state.fps)));
@@ -81,13 +85,10 @@ const startTicker = () => {
     const now = Date.now();
     if (now < state.cooldownUntil) return;
     const id = state.active;
-    const buf = id ? state.frames.get(id) : null;
-    if (!buf) return;
-    try {
-      await sendToServer(buf);
-      state.counts.forwarded++;
-    } catch {
-      state.counts.dropped++;
+    const ws = id ? wsById.get(id) : null;
+    if (ws) {
+      // Drive tick to worker; it will render and post back
+      try { ws.send(JSON.stringify({ type: 'tick', t: Date.now() / 1000 })); } catch {}
     }
   }, interval);
 }
@@ -142,34 +143,114 @@ async function stopWorker(id: string): Promise<void> {
   procs.delete(id);
 }
 
+// ---- Route helpers to reduce nesting ----
+async function handleActiveRequest(req: Request): Promise<Response | null> {
+  if (req.method === 'GET') {
+    return Response.json({ active: state.active, running: Array.from(procs.keys()) });
+  }
+  if (req.method === 'POST') {
+    const j = await req.json().catch(() => ({})) as { id?: string };
+    const prev = state.active;
+    const next = (j && j.id) || null;
+    state.active = next;
+    if (prev && prev !== next) await stopWorker(prev);
+    if (next) {
+      const ok = await startWorker(next);
+      if (!ok) return new Response('unknown worker id', { status: 400 });
+    }
+    return new Response(null, { status: 204 });
+  }
+  return new Response('method not allowed', { status: 405 });
+}
+
+async function handleWorkerStartStopRequest(req: Request, parts: string[]): Promise<Response | null> {
+  if (parts.length !== 3 || parts[0] !== 'workers') return null;
+  const id = parts[1];
+  if (parts[2] === 'start') {
+    if (req.method !== 'POST') return new Response('method not allowed', { status: 405 });
+    const ok = await startWorker(id);
+    if (!ok) return new Response('unknown worker id', { status: 400 });
+    return new Response(null, { status: 204 });
+  }
+  if (parts[2] === 'stop') {
+    if (req.method !== 'POST') return new Response('method not allowed', { status: 405 });
+    await stopWorker(id);
+    return new Response(null, { status: 204 });
+  }
+  return null;
+}
+
+async function handleWorkerConfigSetRequest(req: Request, parts: string[]): Promise<Response | null> {
+  if (parts.length !== 3 || parts[0] !== 'workers' || parts[2] !== 'config') return null;
+  if (req.method !== 'POST') return new Response('method not allowed', { status: 405 });
+  const id = parts[1];
+  const j = await req.json().catch(() => ({}));
+  state.configs.set(id, j as Record<string, unknown>);
+  const ws = wsById.get(id);
+  try { ws?.send(JSON.stringify({ type: 'config', data: j })); } catch {}
+  return new Response(null, { status: 204 });
+}
+
+async function handleWorkerFrameRequest(req: Request, parts: string[]): Promise<Response | null> {
+  if (!(req.method === 'POST' && parts.length === 3 && parts[0] === 'workers' && parts[2] === 'frame')) return null;
+  const id = parts[1];
+  const ab = await req.arrayBuffer();
+  const buf = new Uint8Array(ab);
+  if (buf.byteLength < 16) {
+    const msg = 'short rbm header';
+    state.errors.set(id, msg);
+    return new Response(msg, { status: 400 });
+  }
+  if (!(buf[0] === 0x52 && buf[1] === 0x42)) { // 'RB'
+    const msg = 'bad magic';
+    state.errors.set(id, msg);
+    return new Response(msg, { status: 400 });
+  }
+  if (buf[2] !== 1) {
+    const msg = 'unsupported version';
+    state.errors.set(id, msg);
+    return new Response(msg, { status: 400 });
+  }
+  const w = (buf[4] << 8) | buf[5];
+  const h = (buf[6] << 8) | buf[7];
+  const canvas = state.canvas;
+  if (canvas && (w !== canvas.width || h !== canvas.height)) {
+    const msg = `size mismatch: got ${w}x${h} want ${canvas.width}x${canvas.height}`;
+    state.errors.set(id, msg);
+    return new Response(msg, { status: 400 });
+  }
+  state.counts.received++;
+  state.frames.set(id, buf);
+  state.errors.delete(id);
+  if (state.active === id) {
+    try { await sendToServer(buf); state.counts.forwarded++; } catch { state.counts.dropped++; }
+  }
+  return new Response(null, { status: 204 });
+}
+
 const server = serve({
   port: PORT,
-  async fetch(req) {
+  async fetch(req, server) {
     try {
       const u = new URL(req.url);
       const path = u.pathname;
       const parts = path.split('/').filter(Boolean);
+      // WS upgrade: /workers/:id/ws
+      if (req.method === 'GET' && parts.length === 3 && parts[0] === 'workers' && parts[2] === 'ws') {
+        const id = parts[1];
+        if (server.upgrade(req, { data: { id } })) {
+          return new Response(null, { status: 101 });
+        }
+        return new Response('upgrade failed', { status: 400 });
+      }
       // Health
       if (req.method === 'GET' && path === '/healthz') {
         return new Response('ok');
       }
       // Active source controls
       if (path === '/active') {
-        if (req.method === 'GET') {
-          return Response.json({ active: state.active, running: Array.from(procs.keys()) });
-        }
-        if (req.method === 'POST') {
-          const j = await req.json().catch(() => ({})) as { id?: string };
-          const prev = state.active;
-          const next = (j && j.id) || null;
-          state.active = next;
-          if (prev && prev !== next) await stopWorker(prev);
-          if (next) {
-            const ok = await startWorker(next);
-            if (!ok) return new Response('unknown worker id', { status: 400 });
-          }
-          return new Response(null, { status: 204 });
-        }
+        const r = await handleActiveRequest(req);
+        if (r) return r;
       }
       // Stats
       if (req.method === 'GET' && path === '/stats') {
@@ -196,31 +277,11 @@ const server = serve({
         return Response.json({ sources: Array.from(state.frames.keys()), known: Object.keys(WORKER_CMDS), running: Array.from(procs.keys()) });
       }
       // Manual start/stop for a worker: /workers/:id/start or /workers/:id/stop
-      if (parts.length === 3 && parts[0] === 'workers' && (parts[2] === 'start' || parts[2] === 'stop')) {
-        const id = parts[1];
-        if (req.method !== 'POST') return new Response('method not allowed', { status: 405 });
-        if (parts[2] === 'start') {
-          const ok = await startWorker(id);
-          if (!ok) return new Response('unknown worker id', { status: 400 });
-          return new Response(null, { status: 204 });
-        } else {
-          await stopWorker(id);
-          return new Response(null, { status: 204 });
-        }
-      }
-      // Worker config get/set: /workers/:id/config
-      if (parts.length === 3 && parts[0] === 'workers' && parts[2] === 'config') {
-        const id = parts[1];
-        if (req.method === 'GET') {
-          const cfg = state.configs.get(id) || {};
-          return Response.json(cfg);
-        }
-        if (req.method === 'POST') {
-          const j = await req.json().catch(() => ({}));
-          state.configs.set(id, j as Record<string, unknown>);
-          return new Response(null, { status: 204 });
-        }
-      }
+      const startStopResp = await handleWorkerStartStopRequest(req, parts);
+      if (startStopResp) return startStopResp;
+      // Worker config set (WS-only): /workers/:id/config
+      const cfgResp = await handleWorkerConfigSetRequest(req, parts);
+      if (cfgResp) return cfgResp;
       // Get/Set FPS override
       if (path === '/fps') {
         if (req.method === 'GET') {
@@ -253,39 +314,8 @@ const server = serve({
         }
       }
       // Worker frame ingest: /workers/:id/frame
-      if (req.method === 'POST' && parts.length === 3 && parts[0] === 'workers' && parts[2] === 'frame') {
-        const id = parts[1];
-        const ab = await req.arrayBuffer();
-        const buf = new Uint8Array(ab);
-        // Basic RBM header validation and canvas size check (if known)
-        if (buf.byteLength < 16) {
-          const msg = 'short rbm header';
-          state.errors.set(id, msg);
-          return new Response(msg, { status: 400 });
-        }
-        if (!(buf[0] === 0x52 && buf[1] === 0x42)) { // 'RB'
-          const msg = 'bad magic';
-          state.errors.set(id, msg);
-          return new Response(msg, { status: 400 });
-        }
-        if (buf[2] !== 1) {
-          const msg = 'unsupported version';
-          state.errors.set(id, msg);
-          return new Response(msg, { status: 400 });
-        }
-        const w = (buf[4] << 8) | buf[5];
-        const h = (buf[6] << 8) | buf[7];
-        const canvas = state.canvas;
-        if (canvas && (w !== canvas.width || h !== canvas.height)) {
-          const msg = `size mismatch: got ${w}x${h} want ${canvas.width}x${canvas.height}`;
-          state.errors.set(id, msg);
-          return new Response(msg, { status: 400 });
-        }
-        state.counts.received++;
-        state.frames.set(id, buf);
-        state.errors.delete(id);
-        return new Response(null, { status: 204 });
-      }
+      const frameResp = await handleWorkerFrameRequest(req, parts);
+      if (frameResp) return frameResp;
       // Static UI: serve files from ./ui (no build step)
       if (req.method === 'GET') {
         const local = path === '/' ? '/index.html' : path;
@@ -301,6 +331,24 @@ const server = serve({
     } catch (e) {
       return new Response(String(e), { status: 500 });
     }
+  },
+  websocket: {
+    open(ws) {
+      const id = ws.data?.id as string | undefined;
+      if (!id) { try { ws.close(1008, 'missing id'); } catch {} return; }
+      wsById.set(id, ws);
+      // Send hello and initial config snapshot
+      try { ws.send(JSON.stringify({ type: 'hello', fps: state.fps, canvas: state.canvas })); } catch {}
+      const cfg = state.configs.get(id) || {};
+      try { ws.send(JSON.stringify({ type: 'config', data: cfg })); } catch {}
+    },
+    message(ws, message) {
+      // Workers currently don't send commands; reserved for future
+    },
+    close(ws) {
+      const id = ws.data?.id as string | undefined;
+      if (id && wsById.get(id) === ws) wsById.delete(id);
+    },
   },
 });
 
