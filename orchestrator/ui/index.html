@@ -1,0 +1,248 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Flip‑Disc Orchestrator</title>
+    <style>
+      :root { color-scheme: light dark; }
+      body { font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif; margin: 0; padding: 0; }
+      header { padding: 12px 16px; background: #222; color: #eee; }
+      main { padding: 16px; display: grid; gap: 16px; max-width: 720px; margin: 0 auto; }
+      section { border: 1px solid #ddd; border-radius: 8px; padding: 12px; }
+      h2 { margin: 0 0 8px; font-size: 1.1rem; }
+      .row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+      select, button, input { font: inherit; padding: 6px 8px; }
+      code { background: rgba(0,0,0,0.05); padding: 2px 4px; border-radius: 4px; }
+      .muted { opacity: 0.7; }
+      table { width: 100%; border-collapse: collapse; }
+      td { padding: 4px 6px; border-top: 1px solid #eee; }
+    </style>
+  </head>
+  <body>
+    <header>
+      <strong>Flip‑Disc Orchestrator</strong>
+    </header>
+    <main>
+      <section>
+        <h2>Active Source</h2>
+        <div class="row">
+          <label for="source">Worker:</label>
+          <select id="source"></select>
+          <button id="activate">Set Active</button>
+          <button id="restart">Restart Active</button>
+          <button id="stop">Stop Active</button>
+          <span id="active" class="muted"></span>
+        </div>
+        <div class="row">
+          <span id="running" class="muted"></span>
+        </div>
+      </section>
+
+      <section>
+        <h2>Video Feed</h2>
+        <div class="row">
+          <button id="refreshConfig">Refresh Config</button>
+          <span id="cfg" class="muted"></span>
+        </div>
+        <div class="row">
+          <label>FPS: <input id="fpsInput" type="number" min="1" max="120" value="30" style="width:80px"/></label>
+          <button id="fpsApply">Apply FPS</button>
+          <span id="fpsMsg" class="muted"></span>
+        </div>
+        <div class="row">
+          <label>Scale: <input id="previewScale" type="number" min="1" max="64" value="10" style="width:80px"/></label>
+        </div>
+        <div class="row">
+          <img id="previewFrame" alt="Live preview" style="border:1px solid #ccc; image-rendering: pixelated; max-width: 100%" />
+        </div>
+      </section>
+
+      <section>
+        <h2>Text Scroll</h2>
+        <div class="row">
+          <label>Text: <input id="txt_text" type="text" size="30" placeholder="HELLO FLIP-DISC"/></label>
+          <label>PPS: <input id="txt_pps" type="number" step="0.1" value="10"/></label>
+          <button id="txt_apply">Apply</button>
+          <span class="muted">Worker id: <code>text-scroll</code></span>
+        </div>
+      </section>
+
+      <section>
+        <h2>Stats</h2>
+        <div class="row">
+          <button id="refreshStats">Refresh</button>
+        </div>
+        <table>
+          <tbody id="stats"></tbody>
+        </table>
+      </section>
+
+      <section>
+        <h2>Errors</h2>
+        <div id="errors" class="muted">No errors</div>
+      </section>
+    </main>
+    <script>
+      const sel = document.getElementById('source');
+      const btn = document.getElementById('activate');
+      const btnStop = document.getElementById('stop');
+      const btnRestart = document.getElementById('restart');
+      const active = document.getElementById('active');
+      const statsT = document.getElementById('stats');
+      const cfgEl = document.getElementById('cfg');
+      const refreshStatsBtn = document.getElementById('refreshStats');
+      const refreshCfgBtn = document.getElementById('refreshConfig');
+      const txtText = document.getElementById('txt_text');
+      const txtPps = document.getElementById('txt_pps');
+      const txtApply = document.getElementById('txt_apply');
+      const previewImg = document.getElementById('previewFrame');
+      const previewScale = document.getElementById('previewScale');
+      const fpsInput = document.getElementById('fpsInput');
+      const fpsApply = document.getElementById('fpsApply');
+      const fpsMsg = document.getElementById('fpsMsg');
+
+      async function getJSON(path){ const r = await fetch(path); return r.json(); }
+
+      let lastUserSelectTs = 0;
+
+      let lastSelectedId = null;
+      async function refreshSources(){
+        const j = await getJSON('/sources');
+        const a = await getJSON('/active');
+        // Keep current selection if possible
+        const currentSel = sel.value || lastSelectedId;
+        sel.innerHTML = '';
+        const set = new Set([...(j.known || []), ...(j.sources || [])]);
+        Array.from(set).forEach(id => {
+          const opt = document.createElement('option');
+          opt.value = id; opt.textContent = id; sel.appendChild(opt);
+        });
+        active.textContent = a.active ? `Current: ${a.active}` : 'No active source';
+        const runningEl = document.getElementById('running');
+        runningEl.textContent = (a.running && a.running.length) ? `Running: ${a.running.join(', ')}` : 'Running: (none)';
+        const now = Date.now();
+        const recentlySelecting = (document.activeElement === sel) && ((now - lastUserSelectTs) < 1500);
+        const has = (id) => id && [...sel.options].some(o => o.value === id);
+        if (recentlySelecting) {
+          // While user is interacting, keep their selection stable
+          if (has(currentSel)) sel.value = currentSel;
+        } else {
+          // Otherwise reflect active if any; else keep last user selection
+          if (has(a.active)) sel.value = a.active;
+          else if (has(currentSel)) sel.value = currentSel;
+        }
+      }
+
+      async function setActive(){
+        const id = sel.value || null;
+        await fetch('/active',{ method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({id})});
+        await refreshSources();
+      }
+      async function stopActive(){
+        await fetch('/active',{ method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({id:null})});
+        await refreshSources();
+      }
+      async function restartActive(){
+        const a = await getJSON('/active');
+        const id = a.active || null;
+        if (!id) return;
+        await fetch(`/workers/${id}/stop`, { method:'POST' });
+        await fetch(`/workers/${id}/start`, { method:'POST' });
+        await refreshSources();
+      }
+
+      async function refreshStats(){
+        const j = await getJSON('/stats');
+        statsT.innerHTML = '';
+        Object.entries(j).forEach(([k,v]) => {
+          const tr = document.createElement('tr');
+          const td1 = document.createElement('td'); td1.textContent = k;
+          const td2 = document.createElement('td'); td2.textContent = (typeof v==='object')? JSON.stringify(v): String(v);
+          tr.append(td1, td2); statsT.appendChild(tr);
+        })
+        // Render errors summary
+        const errs = j.errors || {};
+        const errKeys = Object.keys(errs);
+        const el = document.getElementById('errors');
+        if (errKeys.length === 0) {
+          el.textContent = 'No errors';
+        } else {
+          const ul = document.createElement('ul');
+          errKeys.forEach(id => {
+            const li = document.createElement('li');
+            li.textContent = `${id}: ${errs[id]}`;
+            ul.appendChild(li);
+          });
+          el.replaceChildren(ul);
+          el.classList.remove('muted');
+        }
+      }
+
+      async function refreshConfig(){
+        const j = await getJSON('/config');
+        cfgEl.textContent = `Canvas ${j.canvas?.width}×${j.canvas?.height}, FPS ${j.fps}`;
+        if (typeof setPreviewFps === 'function') setPreviewFps(j.fps || 30);
+        try { fpsInput.value = String(j.fps || 30); } catch {}
+      }
+
+      let previewTimer = null;
+      function tickPreview(){
+        const ts = Date.now();
+        const raw = Number(previewScale.value) || 10;
+        const scale = Math.max(1, Math.min(64, raw));
+        previewImg.src = `/frame.png?scale=${scale}&ts=${ts}`; // ts busts cache
+      }
+      function setPreviewFps(fps){
+        if (previewTimer) clearInterval(previewTimer);
+        const f = Math.max(1, Math.min(60, Number(fps) || 2));
+        const interval = Math.round(1000 / f);
+        tickPreview();
+        previewTimer = setInterval(tickPreview, interval);
+      }
+
+      // Persist preview scale across reloads
+      try {
+        const saved = localStorage.getItem('previewScale');
+        if (saved) previewScale.value = String(Math.max(1, Math.min(64, Number(saved)||10)));
+      } catch {}
+      previewScale.addEventListener('change', () => {
+        try { localStorage.setItem('previewScale', String(previewScale.value)); } catch {}
+      });
+
+      async function applyFps(){
+        const fps = Number(fpsInput.value) || 0;
+        const res = await fetch('/fps', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ fps }) });
+        if (!res.ok) {
+          const txt = await res.text();
+          fpsMsg.textContent = txt || 'Failed to set FPS';
+        } else {
+          fpsMsg.textContent = '';
+          await refreshConfig();
+        }
+      }
+
+      btn.addEventListener('click', setActive);
+      sel.addEventListener('change', () => { lastUserSelectTs = Date.now(); lastSelectedId = sel.value; });
+      btnStop.addEventListener('click', stopActive);
+      btnRestart.addEventListener('click', restartActive);
+      refreshStatsBtn.addEventListener('click', refreshStats);
+      refreshCfgBtn.addEventListener('click', refreshConfig);
+      fpsApply.addEventListener('click', applyFps);
+
+      async function applyTextCfg(){
+        const body = { text: txtText.value || 'HELLO FLIP-DISC', pps: Number(txtPps.value)||10, letter_spacing: 1 };
+        await fetch('/workers/text-scroll/config', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body) });
+      }
+
+      txtApply.addEventListener('click', applyTextCfg);
+
+      refreshSources();
+      refreshConfig();
+      refreshStats();
+      setInterval(refreshSources, 2000);
+      setInterval(refreshStats, 2000);
+      // Preview refresh is managed by setPreviewFps() invoked from refreshConfig()
+    </script>
+  </body>
+  </html>

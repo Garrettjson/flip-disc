@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import io
 from pathlib import Path
+import os
 from typing import Optional
 
 import numpy as np
@@ -17,7 +18,8 @@ from .serial_io import RealWriter, StubWriter, SerialWriter
 
 def create_app(args: Optional[list[str]] = None) -> FastAPI:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--config", default="config/display.yaml")
+    default_cfg = str((Path(__file__).resolve().parent.parent / "config" / "display.yaml").resolve())
+    parser.add_argument("--config", default=default_cfg)
     parser.add_argument("--fps", type=int, default=0)
     parser.add_argument("--buffer_ms", type=int, default=1000)
     parser.add_argument("--frame_gap_ms", type=int, default=0)
@@ -31,34 +33,59 @@ def create_app(args: Optional[list[str]] = None) -> FastAPI:
     parser.add_argument("--serial_interpanel_us", type=int, default=0)
     known, _ = parser.parse_known_args(args)
 
-    cfg = load_config(known.config)
-    fps = known.fps if known.fps > 0 else (cfg.fps if cfg.fps > 0 else 30)
+    # Environment overrides (useful for systemd env files)
+    def _env_bool(name: str, default: bool = False) -> bool:
+        v = os.getenv(name)
+        if v is None:
+            return default
+        return v.strip().lower() in ("1", "true", "yes", "on")
 
-    if known.serial:
+    def _env_int(name: str, default: int) -> int:
+        v = os.getenv(name)
+        try:
+            return int(v) if v is not None else default
+        except Exception:
+            return default
+
+    def _env_str(name: str, default: str | None = None) -> str | None:
+        v = os.getenv(name)
+        return v if v is not None else default
+
+    cfg = load_config(known.config)
+    fps_env = _env_int("FLIPDISC_FPS", 0)
+    fps = (fps_env if fps_env > 0 else (known.fps if known.fps > 0 else (cfg.fps if cfg.fps > 0 else 30)))
+
+    serial_enabled = _env_bool("FLIPDISC_SERIAL", known.serial)
+    if serial_enabled:
         sc = cfg.serial
-        if known.serial_device:
-            sc.device = known.serial_device
-        if known.serial_baud:
-            sc.baud = known.serial_baud
-        if known.serial_parity:
-            sc.parity = known.serial_parity
-        if known.serial_databits:
-            sc.data_bits = known.serial_databits
-        if known.serial_stopbits:
-            sc.stop_bits = known.serial_stopbits
+        dev = _env_str("FLIPDISC_SERIAL_DEVICE", known.serial_device)
+        if dev:
+            sc.device = dev
+        baud = _env_int("FLIPDISC_SERIAL_BAUD", known.serial_baud or 0)
+        if baud:
+            sc.baud = baud
+        par = _env_str("FLIPDISC_SERIAL_PARITY", known.serial_parity)
+        if par:
+            sc.parity = par
+        datab = _env_int("FLIPDISC_SERIAL_DATABITS", known.serial_databits or 0)
+        if datab:
+            sc.data_bits = datab
+        stopb = _env_int("FLIPDISC_SERIAL_STOPBITS", known.serial_stopbits or 0)
+        if stopb:
+            sc.stop_bits = stopb
         if not sc.device or not sc.baud:
             raise RuntimeError("serial enabled but device/baud not set")
-        serial_writer: SerialWriter = RealWriter(
-            sc, known.serial_instant, known.serial_interpanel_us
-        )
+        serial_instant = _env_bool("FLIPDISC_SERIAL_INSTANT", known.serial_instant)
+        interpanel_us = _env_int("FLIPDISC_SERIAL_INTERPANEL_US", known.serial_interpanel_us)
+        serial_writer: SerialWriter = RealWriter(sc, serial_instant, interpanel_us)
     else:
         serial_writer = StubWriter()
 
     state = ServerState(
         cfg,
         fps=fps,
-        buffer_ms=known.buffer_ms,
-        frame_gap_ms=known.frame_gap_ms,
+        buffer_ms=_env_int("FLIPDISC_BUFFER_MS", known.buffer_ms),
+        frame_gap_ms=_env_int("FLIPDISC_FRAME_GAP_MS", known.frame_gap_ms),
         serial_writer=serial_writer,
     )
 
@@ -110,17 +137,12 @@ def create_app(args: Optional[list[str]] = None) -> FastAPI:
         need = state.height * state.stride
         if len(data) - off < need:
             raise HTTPException(status_code=400, detail="short payload")
-        # Backpressure: if buffer full, advise client to slow down
+        # Keep-latest semantics: if full, drop oldest frame and accept the newest
         if state.buf.maxlen is not None and len(state.buf) >= state.buf.maxlen:
-            eff_s = max(state.default_interval, state.frame_gap_ms / 1000.0)
-            retry_ms = int(eff_s * 1000)
-            resp = Response(status_code=429)
-            resp.headers["X-Buffer-Size"] = str(len(state.buf))
-            resp.headers["X-Buffer-Cap"] = str(state.buf.maxlen)
-            resp.headers["X-Seq-Ack"] = str(state.last_seq_ack)
-            resp.headers["Retry-After"] = str(max(1, int(eff_s)))
-            resp.headers["X-Retry-After-MS"] = str(max(1, retry_ms))
-            return resp
+            try:
+                state.buf.popleft()
+            except Exception:
+                pass
         payload = bytes(data[off : off + need])
         state.buf.append(
             FrameItem(bits=payload, seq=hdr.seq, duration_ms=hdr.frame_duration_ms)
@@ -153,10 +175,12 @@ def create_app(args: Optional[list[str]] = None) -> FastAPI:
     @app.get("/frame.png")
     async def frame_png(scale: int = 10):
         scale = max(1, min(64, int(scale)))
-        return Response(
-            render_png(state.frame_bits, state.width, state.height, scale),
-            media_type="image/png",
+        # Offload PNG encoding to a thread to avoid blocking the event loop
+        import asyncio as _asyncio
+        png = await _asyncio.to_thread(
+            render_png, state.frame_bits, state.width, state.height, scale
         )
+        return Response(png, media_type="image/png")
 
     @app.get("/debug/panel.png")
     async def panel_png(id: str, scale: int = 20):
@@ -175,6 +199,36 @@ def create_app(args: Optional[list[str]] = None) -> FastAPI:
     async def index():
         idx = Path(__file__).parent / "web" / "index.html"
         return FileResponse(idx)
+
+    @app.get("/fps")
+    async def get_fps():
+        fps_cfg = 1.0 / state.default_interval if state.default_interval > 0 else 0.0
+        return {"fps": int(round(fps_cfg)), "max_fps": state.MAX_FPS}
+
+    @app.post("/fps")
+    async def set_fps(req: Request):
+        try:
+            j = await req.json()
+            fps = int(j.get("fps", 0))
+        except Exception:
+            raise HTTPException(status_code=400, detail="invalid json")
+        if fps <= 0:
+            raise HTTPException(status_code=400, detail="bad fps")
+        if fps > state.MAX_FPS:
+            raise HTTPException(status_code=400, detail=f"fps exceeds max {state.MAX_FPS}")
+        # Update pacing target and reflect in config for clients
+        state.default_interval = max(1.0 / float(fps), state.min_interval)
+        try:
+            state.cfg.fps = fps
+        except Exception:
+            pass
+        return {"fps": fps, "max_fps": state.MAX_FPS}
+
+    @app.delete("/fps")
+    async def clear_fps():
+        fps = int(getattr(state.cfg, "fps", 30) or 30)
+        state.default_interval = max(1.0 / float(fps), state.min_interval)
+        return Response(status_code=204)
 
     return app
 

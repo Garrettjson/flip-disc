@@ -13,6 +13,13 @@ from .serial_io import SerialWriter
 
 @dataclass
 class FrameItem:
+    """Item queued for paced writing by the server.
+
+    Attributes:
+    - bits: Packed 1-bit rows for the full canvas (MSB-first, row-major)
+    - seq: Frame sequence number (uint32, wraps)
+    - duration_ms: Intended display duration for this frame; 0 means use server fps
+    """
     bits: bytes
     seq: int
     duration_ms: int
@@ -29,6 +36,15 @@ class ServerState:
     MAX_FPS = 30  # absolute ceiling enforced by server pacing
 
     def __init__(self, cfg: DisplayConfig, fps: int, buffer_ms: int, frame_gap_ms: int, serial_writer: SerialWriter):
+        """Initialize server state and pacing.
+
+        Args:
+        - cfg: Parsed DisplayConfig (topology, fps, serial settings)
+        - fps: Requested fps override; 0 means use config value
+        - buffer_ms: Size of the keep-latest ring buffer in milliseconds
+        - frame_gap_ms: Minimum gap enforced after each writer tick
+        - serial_writer: Implementation that writes panel-local bitmaps
+        """
         self.cfg = cfg
         self.width = cfg.canvas.width
         self.height = cfg.canvas.height
@@ -55,10 +71,12 @@ class ServerState:
         self._writer_task: Optional[asyncio.Task] = None
 
     def start(self) -> None:
+        """Start the paced writer task if not already running."""
         if self._writer_task is None:
             self._writer_task = asyncio.create_task(self._writer_loop())
 
     async def stop(self) -> None:
+        """Stop the writer task and close the serial writer (best-effort)."""
         if self._writer_task is not None:
             self._writer_task.cancel()
             try:
@@ -72,11 +90,22 @@ class ServerState:
             pass
 
     async def _writer_loop(self) -> None:
+        """Paced writer loop.
+
+        Pulls frames from the ring buffer with keep-latest semantics, maps
+        the canvas to panel-local bitmaps each tick, and writes over serial
+        at the configured cadence with optional inter-frame gap.
+        """
         prev_tick = 0.0
         interval = self.default_interval
+        next_deadline = time.perf_counter()
         try:
             while True:
-                t0 = time.perf_counter()
+                now = time.perf_counter()
+                # keep a stable cadence by scheduling relative to the previous deadline
+                if now < next_deadline:
+                    await asyncio.sleep(next_deadline - now)
+                    now = time.perf_counter()
                 if self.buf:
                     it = self.buf.popleft()
                     self.frame_bits = it.bits
@@ -88,10 +117,10 @@ class ServerState:
                 t_write1 = time.perf_counter()
                 self.last_write_ms = (t_write1 - t_write0) * 1000.0
                 if prev_tick != 0.0:
-                    self.last_interval_ms = (t0 - prev_tick) * 1000.0
-                prev_tick = t0
+                    self.last_interval_ms = (now - prev_tick) * 1000.0
+                prev_tick = now
                 self.write_count += 1
                 eff = max(interval, self.frame_gap_ms / 1000.0)
-                await asyncio.sleep(eff)
+                next_deadline = now + eff
         except asyncio.CancelledError:
             return

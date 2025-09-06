@@ -8,6 +8,16 @@ from .config import DisplayConfig
 
 
 def update_panels(canvas_bits: bytes, canvas_w: int, canvas_h: int, cfg: DisplayConfig) -> Dict[str, bytes]:
+    """Map the full canvas bitfield to per-panel packed bitmaps.
+
+    Args:
+    - canvas_bits: Packed 1-bit rows for the full canvas (MSB-first)
+    - canvas_w, canvas_h: Canvas dimensions
+    - cfg: Display topology and panel orientations
+
+    Returns a dict keyed by panel id with packed row-major bytes for each panel,
+    padded to a whole number of bytes per row.
+    """
     # Unpack canvas bits -> boolean array [H, W]
     stride = (canvas_w + 7) // 8
     canvas = (
@@ -38,6 +48,11 @@ def update_panels(canvas_bits: bytes, canvas_w: int, canvas_h: int, cfg: Display
 
 
 def to_column_bytes(packed: bytes, w: int, h: int) -> bytes:
+    """Fold packed rows into per-column bytes for a w×h panel (MSB is top).
+
+    This produces one byte per column, useful for hardware protocols that
+    shift a column at a time.
+    """
     # Unpack panel-local packed rows to [H, W] then fold each column into a byte (top bit first)
     stride = (w + 7) // 8
     bits = (

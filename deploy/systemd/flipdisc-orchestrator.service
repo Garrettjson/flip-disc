@@ -1,0 +1,19 @@
+[Unit]
+Description=Flip-Disc Orchestrator (Bun)
+After=network-online.target flipdisc-server.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=pi
+Group=pi
+WorkingDirectory=/home/pi/flip-disc
+EnvironmentFile=/etc/flipdisc/orchestrator.env
+ExecStart=/usr/bin/bun orchestrator/index.ts
+Restart=on-failure
+RestartSec=2
+KillSignal=SIGINT
+
+[Install]
+WantedBy=multi-user.target
+
