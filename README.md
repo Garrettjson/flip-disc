@@ -3,7 +3,7 @@
 Flip‑disc (aka flip‑dot) displays flip small discs to show black/white pixels. This repo provides an end‑to‑end stack to render content and drive real hardware.
 
 - Server: Python FastAPI app that maps a virtual canvas to physical panels and writes RS‑485 with stable pacing
-- Orchestrator: Bun/TypeScript app that drives workers via WebSocket ticks and forwards frames to the server
+- Orchestrator: Bun/TypeScript app that drives JS workers as threads and forwards frames to the server
 - Workers: Python processes that render frames on demand and post them as 1‑bit RBM bitmaps
 
 
@@ -16,7 +16,7 @@ Project Structure
 
 
 How It Works
-- Orchestrator is the timing authority. It sends WebSocket ticks to the active worker at target FPS and pushes live config.
+- Orchestrator is the timing authority. It sends postMessage ticks to the active worker at target FPS and pushes live config.
 - Workers render on ticks and POST RBM frames to the orchestrator ingest endpoint.
 - Orchestrator forwards each frame to the server, patching frame duration to match pacing.
 - Server buffers and writes frames over RS‑485, mapping the canvas to physical panels; a PNG preview is exposed for development.
@@ -68,7 +68,7 @@ Getting Started
 - Run (3 terminals):
   - Server: `make run-server` → http://localhost:8080
   - Orchestrator: `make run-orchestrator` → http://localhost:8090
-  - Worker: `cd workers && uv run python runner.py text-scroll`
+  - Worker: use JS worker `text` via orchestrator
 - UI: Pick an active worker and tweak config at http://localhost:8090 (preview proxies the server’s PNG)
 
 Deploy
@@ -78,9 +78,8 @@ More Docs
 - Server details: `server/README.md`
 - Orchestrator details: `orchestrator/README.md`
 - Worker SDK and examples: `workers/README.md`
-- Start the server and orchestrator (as above), then set `/active` to `bouncing-dot`.
-- The orchestrator will spawn the worker; open the viewer and you should see the dot animating.
-- Optional: to bypass the orchestrator, run the worker manually with `TARGET_URL=http://localhost:8080/ingest/rbm`.
+  - Start the server and orchestrator (as above), then set `/active` to `bouncing-dot-js` or `text`.
+  - The orchestrator will spawn the worker; open the viewer and you should see it animating.
 
 Stop the active worker
 - From the UI, click “Stop Active”, or via API: `curl -XPOST localhost:8090/active -H 'Content-Type: application/json' -d '{"id":null}'`.
@@ -95,7 +94,7 @@ Preview scale
 
 Worker config via orchestrator
 - Workers poll `GET /workers/:id/config` ~1 Hz; you can update settings via the UI or `curl`:
-  - `curl -XPOST localhost:8090/workers/text-scroll/config -H 'Content-Type: application/json' -d '{"text":"HELLO","pps":12,"letter_spacing":1}'`
+  - `curl -XPOST localhost:8090/workers/text/config -H 'Content-Type: application/json' -d '{"text":"HELLO","pps":12,"letter_spacing":1}'`
 
 
 **Server Flags (CLI after `--`)**
@@ -111,25 +110,19 @@ Worker config via orchestrator
 
 **Endpoints**
 - Server: `POST /ingest/rbm`, `GET /frame.png?scale=10`, `GET /debug/panel.png?id=top&scale=20`, `GET /config`, `GET /stats`, `GET /healthz`.
-- Orchestrator: `POST /workers/:id/frame`, `POST /active`, `GET /active`, `GET /stats`, `GET /config`, `GET /healthz`.
-  - Worker config endpoints (orchestrator): `GET/POST /workers/:id/config` (used by text-scroll worker for text/speed).
+- Orchestrator: `POST /active`, `GET /active`, `GET /stats`, `GET /config`, `GET /healthz`.
+  - Worker config endpoints: `GET/POST /workers/:id/config` (used by text worker for text/speed).
   - Ingest validation: RBM header magic/version are checked; frames are rejected if `width/height` don’t match the server canvas.
   - Proxy: `GET /frame.png` forwards to server `/frame.png` for the UI preview.
 
-Worker process management (orchestrator)
+Worker thread management (orchestrator)
 - `POST /workers/:id/start` and `POST /workers/:id/stop`
 - `POST /active {"id": "<worker-id>"}` to switch and auto start; `{"id": null}` to stop current.
 - `/stats` and `/active` include `running` list.
 
 **Troubleshooting**
-- “Multiple top-level packages discovered” during `uv sync` in `workers/`:
-  - Fixed by declaring no packages in `workers/pyproject.toml` (`tool.setuptools.packages = []`). Run `make uv-setup-workers` again.
-- Worker doesn’t auto-start when setting `/active`:
-  - Ensure `uv` is installed and on PATH; run `uv --version`. If missing, install per “One-time setup”.
-  - Ensure `make uv-setup-workers` was run to create the workers’ venv.
-  - Check orchestrator logs for spawn errors.
-- RBM size mismatch errors in UI (“size mismatch: got WxH want …”):
-  - Make sure the worker is using `WorkerBase` and not hardcoding sizes. Workers fetch canvas size from `/config`.
+ - RBM size mismatch errors in UI (“size mismatch: got WxH want …”):
+  - Ensure workers use the canvas from `/config` (`display.width/height`) and do not hardcode sizes.
 - Viewer doesn’t update:
   - Confirm server is running on `:8080` and orchestrator on `:8090`.
   - Check server `/stats`; verify `frames_received` is increasing.
@@ -179,29 +172,28 @@ See also: `next-steps.md` for protocol evolution (XOR/dirty‑rects), orchestrat
 - Env files (edit under `/etc/flipdisc/`):
   - `server.env`: `PORT`, `FLIPDISC_SERIAL=1`, `FLIPDISC_SERIAL_DEVICE`, `FLIPDISC_FPS`, etc.
   - `orchestrator.env`: `PORT`, `SERVER_URL`
-  - `worker-<id>.env`: per‑worker env (e.g., `worker-text-scroll.env`, `worker-bouncing-dot.env`). Samples in `deploy/env/`.
+- `worker-<id>.env`: per‑worker env files for Python media pipeline workers you add.
 - Units installed to `/etc/systemd/system/`:
   - `flipdisc-server.service` (uv/uvicorn FastAPI server)
   - `flipdisc-orchestrator.service` (Bun server)
-  - `flipdisc-worker@.service` (templated Python worker; run instances like `flipdisc-worker@text-scroll`)
+- `flipdisc-worker@.service` (templated Python media pipeline worker)
 
 Quick worker instance usage
 - Copy and edit a worker env sample:
-  - `sudo cp deploy/env/worker-text-scroll.env.sample /etc/flipdisc/worker-text-scroll.env`
-  - `sudo nano /etc/flipdisc/worker-text-scroll.env`
+- create `/etc/flipdisc/worker-<id>.env` as needed for your Python media workers
 - Start and enable the worker instance:
-  - `sudo systemctl enable --now flipdisc-worker@text-scroll`
+- `sudo systemctl enable --now flipdisc-worker@<id>`
 - Logs for a single worker:
-  - `journalctl -u flipdisc-worker@text-scroll -f`
+- `journalctl -u flipdisc-worker@<id> -f`
 
 Installer options
 - The installer can auto‑enable worker instances:
-  - Explicit list: `sudo WORKERS="text-scroll bouncing-dot" bash deploy/install_systemd.sh`
+- Explicit list: `sudo WORKERS="<id1> <id2>" bash deploy/install_systemd.sh`
   - Enable all with env files: `sudo AUTO_ENABLE_WORKERS=1 bash deploy/install_systemd.sh`
 
 
-**Worker SDK (Python)**
-- Base harness: `workers/common/base.py` exposes `WorkerBase` and `DisplayInfo`.
+**Media Pipeline SDK (Python)**
+- Base harness: `media_pipeline/common/base.py` exposes `WorkerBase` and `DisplayInfo`.
 - Implement: `render(t: float, display: DisplayInfo, cfg: dict) -> Iterable[Iterable[int]]` returning a 2D 0/1 frame sized to the canvas.
 - Harness handles:
   - Fetch display size/FPS via orchestrator `GET /config` (proxied from server).
@@ -215,7 +207,7 @@ Installer options
 Minimal example
 ```
 from typing import Iterable, List
-from workers.common.base import WorkerBase, DisplayInfo
+from media_pipeline.common.base import WorkerBase, DisplayInfo
 
 class Example(WorkerBase):
     def __init__(self):

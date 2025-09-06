@@ -20,7 +20,7 @@ class Glyph:
 class BitmapFont:
     """
     Lightweight bitmap font loader for the provided sprite sheet
-    at `src/assets/text/standard.bmp`.
+    at `assets/text/standard.bmp`.
 
     The sheet is a grid of glyphs with a 1px padding border and 1px
     margin between glyphs. Default glyph size is 5x7, starting at
@@ -150,7 +150,7 @@ class BitmapFont:
 
 
 def repo_root_from(file: Path) -> Path:
-    # workers/common/font.py -> workers/common -> workers -> repo root
+    # media_pipeline/common/font.py -> media_pipeline/common -> media_pipeline -> repo root
     return file.resolve().parents[2]
 
 

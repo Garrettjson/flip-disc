@@ -184,3 +184,4 @@ class WorkerBase(ABC):
         from .runner import WorkerRunner
 
         WorkerRunner(self).run()
+

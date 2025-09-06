@@ -47,6 +47,10 @@ class WorkerRunner:
         self._ws_task: Optional[asyncio.Task[None]] = None
         self._stop = False
         self.preview = None
+        # Tunables
+        self.WS_PING_INTERVAL_S = 20
+        self.WS_PING_TIMEOUT_S = 20
+        self.WS_BACKOFF_MAX_S = 30.0
 
     async def _post_frame_async(self, rows: list[list[int]]):
         if not self.display:
@@ -125,7 +129,11 @@ class WorkerRunner:
         backoff = 1.0
         while not self._stop:
             try:
-                async with websockets.connect(ws_url, ping_interval=20, ping_timeout=20) as ws:
+                async with websockets.connect(
+                    ws_url,
+                    ping_interval=self.WS_PING_INTERVAL_S,
+                    ping_timeout=self.WS_PING_TIMEOUT_S,
+                ) as ws:
                     backoff = 1.0
                     # Optional hello for visibility/logging
                     await ws.send(json.dumps({"type": "hello", "caps": {"version": 1}}))
@@ -164,7 +172,7 @@ class WorkerRunner:
             except (WebSocketException, OSError, TimeoutError):
                 # Backoff and retry on WS/network errors
                 await asyncio.sleep(backoff)
-                backoff = min(30.0, backoff * 2)
+                backoff = min(self.WS_BACKOFF_MAX_S, backoff * 2)
 
     def run(self) -> None:
         async def _main():
@@ -181,3 +189,4 @@ class WorkerRunner:
         finally:
             if self.preview:
                 self.preview.close()
+

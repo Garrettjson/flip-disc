@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-import threading
-import time
 from typing import Iterable, List
 
 try:
@@ -52,15 +50,3 @@ class TkGridViewer:
                 self.canvas.create_rectangle(x0, y0, x1, y1, outline=color, fill=color)
         self.canvas.update()
 
-    def loop(self, frame_source, fps: int = 30):
-        """
-        frame_source(): -> iterable of rows
-        """
-        interval = 1.0 / max(1, fps)
-        try:
-            while True:
-                self.update(frame_source())
-                time.sleep(interval)
-        except tk.TclError:
-            # window closed
-            pass

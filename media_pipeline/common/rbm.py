@@ -1,16 +1,11 @@
 from __future__ import annotations
 
-import math
 import struct
-from typing import Iterable, List
+from typing import Iterable
 
 
 def pack_bitmap_1bit(rows: Iterable[Iterable[int]], width: int, height: int) -> bytes:
-    """Pack a 2D array of 0/1 ints into MSB-first row-major bytes.
-
-    rows: iterable of rows, each an iterable of 0/1 values, length=height
-    width, height: dimensions of the logical canvas
-    """
+    """Pack a 2D array of 0/1 ints into MSB-first row-major bytes."""
     stride = (width + 7) // 8
     out = bytearray(height * stride)
     y = 0
@@ -62,3 +57,4 @@ def encode_rbm(
         0,  # reserved
     )
     return header + frame_bits
+

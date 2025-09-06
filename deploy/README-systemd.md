@@ -18,10 +18,10 @@ git clone https://github.com/<owner>/flip-disc.git
 cd flip-disc
 
 # Server Python env
-cd server
-uv venv
-uv sync
-cd ..
+cd server && uv venv && uv sync && cd ..
+
+# Media pipeline Python env
+cd media_pipeline && uv venv && uv sync && cd ..
 
 # Orchestrator deps
 make bun-setup
@@ -81,12 +81,12 @@ The installer will:
 - Create the uv virtualenv and sync deps if missing
 - Run `bun install` for the orchestrator
 - Write units with the correct absolute paths
-- Create the workers venv and sync deps if missing
-- Install a templated worker unit `flipdisc-worker@.service`
+- Create the media_pipeline venv and sync deps if missing
+- Install a templated media pipeline unit `flipdisc-worker@.service`
 
 Optional installer flags:
 
-- `WORKERS="text-scroll bouncing-dot"` — enable and start these worker instances immediately. If an env file is missing, the installer copies a sample where available.
+- `WORKERS="<id1> <id2>"` — enable and start these Python media pipeline worker instances immediately.
 - `AUTO_ENABLE_WORKERS=1` — enable and start all workers that have env files under `/etc/flipdisc/` (files named `worker-<id>.env`).
 
 ## Check status and logs
@@ -98,36 +98,36 @@ systemctl status flipdisc-orchestrator.service
 journalctl -u flipdisc-server -f
 journalctl -u flipdisc-orchestrator -f
 
-## Running Workers (templated unit)
+## Media pipeline workers (templated unit)
 
-Workers run as independent instances of a single template unit. Each instance has its own env file and lifecycle.
+Python media pipeline workers run as independent instances of a single template unit. Each instance has its own env file and lifecycle.
 
-1) Create an env file for your worker id (example: `text-scroll`):
+1) Create an env file for your worker id (example: `my-media-filter`):
 
 ```bash
-sudo cp /home/pi/flip-disc/deploy/env/worker-text-scroll.env.sample /etc/flipdisc/worker-text-scroll.env
-sudo nano /etc/flipdisc/worker-text-scroll.env
+sudo bash -c 'echo "ORCH_URL=http://localhost:8090" > /etc/flipdisc/worker-my-media-filter.env'
+sudo nano /etc/flipdisc/worker-my-media-filter.env
 ```
 
 2) Start and enable the worker instance:
 
 ```bash
-sudo systemctl enable --now flipdisc-worker@text-scroll
+sudo systemctl enable --now flipdisc-worker@my-media-filter
 ```
 
 3) Check status and logs:
 
 ```bash
-systemctl status flipdisc-worker@text-scroll
-journalctl -u flipdisc-worker@text-scroll -f
+systemctl status flipdisc-worker@my-media-filter
+journalctl -u flipdisc-worker@my-media-filter -f
 ```
 
-Repeat with different ids for additional workers (e.g., `flipdisc-worker@bouncing-dot`).
+Repeat with different ids for additional workers.
 
 You can also auto-enable during install:
 
 ```bash
-sudo WORKERS="text-scroll bouncing-dot" bash deploy/install_systemd.sh
+sudo WORKERS="<id1> <id2>" bash deploy/install_systemd.sh
 # or
 sudo AUTO_ENABLE_WORKERS=1 bash deploy/install_systemd.sh
 ```
@@ -138,7 +138,7 @@ sudo AUTO_ENABLE_WORKERS=1 bash deploy/install_systemd.sh
 ```bash
 cd /home/pi/flip-disc
 git pull
-cd server && uv sync && cd ..
+cd server && uv sync && cd ../media_pipeline && uv sync && cd ..
 sudo systemctl restart flipdisc-server flipdisc-orchestrator
 ```
 

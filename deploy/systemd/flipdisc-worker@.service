@@ -1,5 +1,5 @@
 [Unit]
-Description=Flip-Disc Worker %i (Python)
+Description=Flip-Disc Media Pipeline %i (Python)
 After=network-online.target
 Wants=network-online.target
 
@@ -8,10 +8,10 @@ Type=simple
 # These values are illustrative; use deploy/install_systemd.sh to install with correct paths.
 User=pi
 Group=pi
-WorkingDirectory=/home/pi/flip-disc
+WorkingDirectory=/home/pi/flip-disc/media_pipeline
 EnvironmentFile=/etc/flipdisc/worker-%i.env
 Environment=PYTHONPATH=/home/pi/flip-disc
-ExecStart=/home/pi/flip-disc/workers/.venv/bin/uv run python workers/runner.py %i
+ExecStart=/home/pi/flip-disc/media_pipeline/.venv/bin/uv run python media_pipeline/runner.py %i
 Restart=on-failure
 RestartSec=2
 StartLimitIntervalSec=60
@@ -20,4 +20,3 @@ KillSignal=SIGINT
 
 [Install]
 WantedBy=multi-user.target
-

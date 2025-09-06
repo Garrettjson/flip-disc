@@ -56,3 +56,4 @@ def make_preview(
     except Exception:
         # Fallback to no-op if Tk initialization fails
         return _NoOpPreview()
+

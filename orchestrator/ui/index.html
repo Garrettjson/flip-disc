@@ -4,20 +4,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Flip‑Disc Orchestrator</title>
-    <style>
-      :root { color-scheme: light dark; }
-      body { font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif; margin: 0; padding: 0; }
-      header { padding: 12px 16px; background: #222; color: #eee; }
-      main { padding: 16px; display: grid; gap: 16px; max-width: 720px; margin: 0 auto; }
-      section { border: 1px solid #ddd; border-radius: 8px; padding: 12px; }
-      h2 { margin: 0 0 8px; font-size: 1.1rem; }
-      .row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
-      select, button, input { font: inherit; padding: 6px 8px; }
-      code { background: rgba(0,0,0,0.05); padding: 2px 4px; border-radius: 4px; }
-      .muted { opacity: 0.7; }
-      table { width: 100%; border-collapse: collapse; }
-      td { padding: 4px 6px; border-top: 1px solid #eee; }
-    </style>
+    <link rel="stylesheet" href="./styles.css" />
   </head>
   <body>
     <header>
@@ -42,29 +29,48 @@
       <section>
         <h2>Video Feed</h2>
         <div class="row">
-          <button id="refreshConfig">Refresh Config</button>
+          <button id="refreshConfig" class="sm">Refresh</button>
           <span id="cfg" class="muted"></span>
         </div>
-        <div class="row">
-          <label>FPS: <input id="fpsInput" type="number" min="1" max="120" value="30" style="width:80px"/></label>
-          <button id="fpsApply">Apply FPS</button>
+        <div class="row controls check-row">
+          <label>FPS: <input id="fpsInput" class="w-sm" type="number" min="1" max="120" value="30"/></label>
+          <button id="fpsApply" class="sm">Apply</button>
           <span id="fpsMsg" class="muted"></span>
-        </div>
-        <div class="row">
-          <label>Scale: <input id="previewScale" type="number" min="1" max="64" value="10" style="width:80px"/></label>
+          <span class="muted">|</span>
+          <label>Scale: <input id="previewScale" class="w-sm" type="number" min="1" max="64" value="10"/></label>
+          <span class="muted">|</span>
+          <label><input id="pipe_invert" type="checkbox"/> Invert</label>
+          <label><input id="pipe_fliph" type="checkbox"/> Flip H</label>
+          <label><input id="pipe_flipv" type="checkbox"/> Flip V</label>
+          <label><input id="pipe_rot" type="checkbox"/> 180°</label>
+          <button id="pipeApply" class="sm">Apply</button>
         </div>
         <div class="row">
           <img id="previewFrame" alt="Live preview" style="border:1px solid #ccc; image-rendering: pixelated; max-width: 100%" />
         </div>
       </section>
 
-      <section>
-        <h2>Text Scroll</h2>
+      <section id="panel-text-scroll" style="display:none">
+        <h2>Text</h2>
         <div class="row">
           <label>Text: <input id="txt_text" type="text" size="30" placeholder="HELLO FLIP-DISC"/></label>
           <label>PPS: <input id="txt_pps" type="number" step="0.1" value="10"/></label>
+          <label>Letter Spacing: <input id="txt_spacing" type="number" step="1" min="0" value="1"/></label>
           <button id="txt_apply">Apply</button>
-          <span class="muted">Worker id: <code>text-scroll</code></span>
+          <span class="muted">Worker id: <code>text</code></span>
+        </div>
+      </section>
+
+      <section id="panel-simplex-noise" style="display:none">
+        <h2>Simplex Noise</h2>
+        <div class="row">
+          <label>Scale: <input id="sn_scale" type="number" min="1" max="128" value="4" style="width:80px"/></label>
+          <label>Step: <input id="sn_step" type="number" step="0.01" min="0" value="0.05" style="width:100px"/></label>
+          <label>Threshold: <input id="sn_threshold" type="number" min="0" max="255" value="128" style="width:90px"/></label>
+          <label>Seed: <input id="sn_seed" type="number" step="1" value="" style="width:110px"/></label>
+          <label><input id="sn_invert" type="checkbox"/> Invert</label>
+          <button id="sn_apply">Apply</button>
+          <span class="muted">Worker id: <code>simplex-noise</code></span>
         </div>
       </section>
 
@@ -96,42 +102,63 @@
       const txtText = document.getElementById('txt_text');
       const txtPps = document.getElementById('txt_pps');
       const txtApply = document.getElementById('txt_apply');
+      const txtSpacing = document.getElementById('txt_spacing');
+      const snScale = document.getElementById('sn_scale');
+      const snStep = document.getElementById('sn_step');
+      const snThreshold = document.getElementById('sn_threshold');
+      const snSeed = document.getElementById('sn_seed');
+      const snInvert = document.getElementById('sn_invert');
+      const snApply = document.getElementById('sn_apply');
+      const panelTextScroll = document.getElementById('panel-text-scroll');
+      const panelSimplex = document.getElementById('panel-simplex-noise');
       const previewImg = document.getElementById('previewFrame');
       const previewScale = document.getElementById('previewScale');
       const fpsInput = document.getElementById('fpsInput');
       const fpsApply = document.getElementById('fpsApply');
       const fpsMsg = document.getElementById('fpsMsg');
+      const pipeInvert = document.getElementById('pipe_invert');
+      const pipeFlipH = document.getElementById('pipe_fliph');
+      const pipeFlipV = document.getElementById('pipe_flipv');
+      const pipeRot = document.getElementById('pipe_rot');
+      const pipeApply = document.getElementById('pipeApply');
 
-      async function getJSON(path){ const r = await fetch(path); return r.json(); }
+      async function getJSON(path){ const response = await fetch(path); return response.json(); }
 
       let lastUserSelectTs = 0;
 
       let lastSelectedId = null;
       async function refreshSources(){
-        const j = await getJSON('/sources');
-        const a = await getJSON('/active');
+        const sourcesJson = await getJSON('/sources');
+        const activeJson = await getJSON('/active');
         // Keep current selection if possible
         const currentSel = sel.value || lastSelectedId;
         sel.innerHTML = '';
-        const set = new Set([...(j.known || []), ...(j.sources || [])]);
+        const set = new Set([...(sourcesJson.known || []), ...(sourcesJson.sources || [])]);
         Array.from(set).forEach(id => {
           const opt = document.createElement('option');
           opt.value = id; opt.textContent = id; sel.appendChild(opt);
         });
-        active.textContent = a.active ? `Current: ${a.active}` : 'No active source';
+        active.textContent = activeJson.active ? `Current: ${activeJson.active}` : 'No active source';
         const runningEl = document.getElementById('running');
         runningEl.textContent = (a.running && a.running.length) ? `Running: ${a.running.join(', ')}` : 'Running: (none)';
         const now = Date.now();
-        const recentlySelecting = (document.activeElement === sel) && ((now - lastUserSelectTs) < 1500);
+        const recentlySelecting = (document.activeElement === sel) && ((now - lastUserSelectTs) < SELECT_INTERACT_MS);
         const has = (id) => id && [...sel.options].some(o => o.value === id);
         if (recentlySelecting) {
           // While user is interacting, keep their selection stable
           if (has(currentSel)) sel.value = currentSel;
         } else {
           // Otherwise reflect active if any; else keep last user selection
-          if (has(a.active)) sel.value = a.active;
+          if (has(activeJson.active)) sel.value = activeJson.active;
           else if (has(currentSel)) sel.value = currentSel;
         }
+        updatePanels();
+      }
+
+      function updatePanels(){
+        const id = sel.value || '';
+        if (panelTextScroll) panelTextScroll.style.display = (id === 'text') ? '' : 'none';
+        if (panelSimplex) panelSimplex.style.display = (id === 'simplex-noise-js') ? '' : 'none';
       }
 
       async function setActive(){
@@ -144,8 +171,8 @@
         await refreshSources();
       }
       async function restartActive(){
-        const a = await getJSON('/active');
-        const id = a.active || null;
+        const activeJson = await getJSON('/active');
+        const id = activeJson.active || null;
         if (!id) return;
         await fetch(`/workers/${id}/stop`, { method:'POST' });
         await fetch(`/workers/${id}/start`, { method:'POST' });
@@ -153,16 +180,16 @@
       }
 
       async function refreshStats(){
-        const j = await getJSON('/stats');
+        const statsJson = await getJSON('/stats');
         statsT.innerHTML = '';
-        Object.entries(j).forEach(([k,v]) => {
+        Object.entries(statsJson).forEach(([k,v]) => {
           const tr = document.createElement('tr');
           const td1 = document.createElement('td'); td1.textContent = k;
           const td2 = document.createElement('td'); td2.textContent = (typeof v==='object')? JSON.stringify(v): String(v);
           tr.append(td1, td2); statsT.appendChild(tr);
         })
         // Render errors summary
-        const errs = j.errors || {};
+        const errs = statsJson.errors || {};
         const errKeys = Object.keys(errs);
         const el = document.getElementById('errors');
         if (errKeys.length === 0) {
@@ -180,23 +207,30 @@
       }
 
       async function refreshConfig(){
-        const j = await getJSON('/config');
-        cfgEl.textContent = `Canvas ${j.canvas?.width}×${j.canvas?.height}, FPS ${j.fps}`;
-        if (typeof setPreviewFps === 'function') setPreviewFps(j.fps || 30);
-        try { fpsInput.value = String(j.fps || 30); } catch {}
+        const configJson = await getJSON('/config');
+        cfgEl.textContent = `Canvas ${configJson.canvas?.width}×${configJson.canvas?.height}, FPS ${configJson.fps}`;
+        if (typeof setPreviewFps === 'function') setPreviewFps(configJson.fps || 30);
+        try { fpsInput.value = String(configJson.fps || 30); } catch {}
       }
+
+      // Preview constants
+      const SELECT_INTERACT_MS = 1500;
+      const PREVIEW_SCALE_MIN = 1;
+      const PREVIEW_SCALE_MAX = 64;
+      const PREVIEW_FPS_MAX = 60;
+      const DEFAULT_PREVIEW_SCALE = 10;
 
       let previewTimer = null;
       function tickPreview(){
         const ts = Date.now();
-        const raw = Number(previewScale.value) || 10;
-        const scale = Math.max(1, Math.min(64, raw));
+        const raw = Number(previewScale.value) || DEFAULT_PREVIEW_SCALE;
+        const scale = Math.max(PREVIEW_SCALE_MIN, Math.min(PREVIEW_SCALE_MAX, raw));
         previewImg.src = `/frame.png?scale=${scale}&ts=${ts}`; // ts busts cache
       }
       function setPreviewFps(fps){
         if (previewTimer) clearInterval(previewTimer);
-        const f = Math.max(1, Math.min(60, Number(fps) || 2));
-        const interval = Math.round(1000 / f);
+        const previewFps = Math.max(1, Math.min(PREVIEW_FPS_MAX, Number(fps) || 2));
+        const interval = Math.round(1000 / previewFps);
         tickPreview();
         previewTimer = setInterval(tickPreview, interval);
       }
@@ -204,7 +238,7 @@
       // Persist preview scale across reloads
       try {
         const saved = localStorage.getItem('previewScale');
-        if (saved) previewScale.value = String(Math.max(1, Math.min(64, Number(saved)||10)));
+        if (saved) previewScale.value = String(Math.max(PREVIEW_SCALE_MIN, Math.min(PREVIEW_SCALE_MAX, Number(saved)||DEFAULT_PREVIEW_SCALE)));
       } catch {}
       previewScale.addEventListener('change', () => {
         try { localStorage.setItem('previewScale', String(previewScale.value)); } catch {}
@@ -223,19 +257,66 @@
       }
 
       btn.addEventListener('click', setActive);
-      sel.addEventListener('change', () => { lastUserSelectTs = Date.now(); lastSelectedId = sel.value; });
+      sel.addEventListener('change', () => { lastUserSelectTs = Date.now(); lastSelectedId = sel.value; updatePanels(); loadWorkerConfig(); });
       btnStop.addEventListener('click', stopActive);
       btnRestart.addEventListener('click', restartActive);
       refreshStatsBtn.addEventListener('click', refreshStats);
       refreshCfgBtn.addEventListener('click', refreshConfig);
       fpsApply.addEventListener('click', applyFps);
+      async function applyPipeline(){
+        const id = sel.value || null;
+        if (!id) return;
+        const body = {
+          invert: !!pipeInvert.checked,
+          flip_h: !!pipeFlipH.checked,
+          flip_v: !!pipeFlipV.checked,
+          rotate180: !!pipeRot.checked,
+        };
+        await fetch(`/workers/${id}/config`, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body) });
+      }
+      pipeApply.addEventListener('click', applyPipeline);
 
       async function applyTextCfg(){
-        const body = { text: txtText.value || 'HELLO FLIP-DISC', pps: Number(txtPps.value)||10, letter_spacing: 1 };
-        await fetch('/workers/text-scroll/config', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body) });
+        const id = sel.value || 'text';
+        const spacing = Math.max(0, Number(txtSpacing.value)||1);
+        const body = { text: txtText.value || 'HELLO FLIP-DISC', pps: Number(txtPps.value)||10, letter_spacing: spacing };
+        await fetch(`/workers/${id}/config`, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body) });
       }
 
       txtApply.addEventListener('click', applyTextCfg);
+
+      async function applyNoiseCfg(){
+        const id = sel.value || 'simplex-noise';
+        const scale = Math.max(1, Number(snScale.value)||4);
+        const step = Math.max(0, Number(snStep.value)||0.05);
+        const threshold = Math.max(0, Math.min(255, Number(snThreshold.value)||128));
+        const invert = !!snInvert.checked;
+        const seedVal = Number(snSeed.value);
+        const body = { scale, step, threshold, invert, seed: Number.isFinite(seedVal) ? seedVal : undefined };
+        await fetch(`/workers/${id}/config`, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body) });
+      }
+
+      snApply.addEventListener('click', applyNoiseCfg);
+
+      async function loadWorkerConfig(){
+        const id = sel.value || '';
+        if (!id) return;
+        try {
+          const cfg = await getJSON(`/workers/${id}/config`);
+          if (id === 'text') {
+            if (cfg.text != null) txtText.value = String(cfg.text);
+            if (cfg.pps != null) txtPps.value = String(cfg.pps);
+            if (cfg.letter_spacing != null) txtSpacing.value = String(cfg.letter_spacing);
+          }
+          if (id === 'simplex-noise-js') {
+            if (cfg.scale != null) snScale.value = String(cfg.scale);
+            if (cfg.step != null) snStep.value = String(cfg.step);
+            if (cfg.threshold != null) snThreshold.value = String(cfg.threshold);
+            if (cfg.seed != null) snSeed.value = String(cfg.seed);
+            if (cfg.invert != null) snInvert.checked = !!cfg.invert;
+          }
+        } catch {}
+      }
 
       refreshSources();
       refreshConfig();

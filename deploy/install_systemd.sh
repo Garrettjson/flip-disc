@@ -23,7 +23,7 @@ DEFAULT_ROOT="$(cd -- "$SCRIPT_DIR/.." && pwd)"
 REPO_ROOT="${PREFIX:-$DEFAULT_ROOT}"
 SERVER_DIR="$REPO_ROOT/server"
 ORCH_DIR="$REPO_ROOT"
-WORKERS_DIR="$REPO_ROOT/workers"
+MEDIA_DIR="$REPO_ROOT/media_pipeline"
 
 if [[ ! -d "$SERVER_DIR" ]]; then
   echo "Expected server dir not found at $SERVER_DIR" >&2
@@ -56,6 +56,8 @@ if ! BUN_BIN="$(command -v bun)"; then
 fi
 echo "Installing orchestrator dev deps with bun ..." >&2
 sudo -u "$SERVICE_USER" -H bash -lc "cd '$ORCH_DIR/orchestrator' && bun install"
+echo "Installing workers deps with bun ..." >&2
+sudo -u "$SERVICE_USER" -H bash -lc "cd '$ORCH_DIR/workers' && bun install"
 
 # Env directory
 ENV_DIR="/etc/flipdisc"
@@ -71,29 +73,19 @@ if [[ ! -f "$ENV_DIR/orchestrator.env" ]]; then
   echo "Created $ENV_DIR/orchestrator.env (edit to configure orchestrator)." >&2
 fi
 
-# Ensure workers uv venv exists (create/sync if missing)
-UV_BIN_WORKERS="$WORKERS_DIR/.venv/bin/uv"
-if [[ ! -x "$UV_BIN_WORKERS" ]]; then
-  echo "Creating workers uv virtualenv at $WORKERS_DIR/.venv ..." >&2
+# Ensure media pipeline uv venv exists (create/sync if missing)
+UV_BIN_MEDIA="$MEDIA_DIR/.venv/bin/uv"
+if [[ ! -x "$UV_BIN_MEDIA" ]]; then
+  echo "Creating media pipeline uv virtualenv at $MEDIA_DIR/.venv ..." >&2
   if [[ -n "${UV_PYTHON:-}" ]]; then
-    sudo -u "$SERVICE_USER" -H bash -lc "cd '$WORKERS_DIR' && uv venv --python '$UV_PYTHON'"
+    sudo -u "$SERVICE_USER" -H bash -lc "cd '$MEDIA_DIR' && uv venv --python '$UV_PYTHON'"
   else
-    sudo -u "$SERVICE_USER" -H bash -lc "cd '$WORKERS_DIR' && uv venv"
+    sudo -u "$SERVICE_USER" -H bash -lc "cd '$MEDIA_DIR' && uv venv"
   fi
-  sudo -u "$SERVICE_USER" -H bash -lc "cd '$WORKERS_DIR' && uv sync"
+  sudo -u "$SERVICE_USER" -H bash -lc "cd '$MEDIA_DIR' && uv sync"
 fi
 
-# Sample worker env for text-scroll
-if [[ ! -f "$ENV_DIR/worker-text-scroll.env" ]]; then
-  cp "$DEFAULT_ROOT/deploy/env/worker-text-scroll.env.sample" "$ENV_DIR/worker-text-scroll.env"
-  echo "Created $ENV_DIR/worker-text-scroll.env (edit to configure text-scroll worker)." >&2
-fi
-
-# Sample worker env for bouncing-dot
-if [[ ! -f "$ENV_DIR/worker-bouncing-dot.env" ]]; then
-  cp "$DEFAULT_ROOT/deploy/env/worker-bouncing-dot.env.sample" "$ENV_DIR/worker-bouncing-dot.env"
-  echo "Created $ENV_DIR/worker-bouncing-dot.env (edit to configure bouncing-dot worker)." >&2
-fi
+# Sample envs for media pipeline workers may be added per-worker as needed.
 
 # Write server unit
 cat > /etc/systemd/system/flipdisc-server.service <<UNIT
@@ -145,10 +137,10 @@ systemctl enable flipdisc-orchestrator.service
 systemctl restart flipdisc-server.service || systemctl start flipdisc-server.service
 systemctl restart flipdisc-orchestrator.service || systemctl start flipdisc-orchestrator.service
 
-# Write worker template unit (templated instance: flipdisc-worker@<id>.service)
+# Write media pipeline templated unit (flipdisc-worker@<id>.service)
 cat > /etc/systemd/system/flipdisc-worker@.service <<UNIT
 [Unit]
-Description=Flip-Disc Worker %i (Python)
+Description=Flip-Disc Media Pipeline %i (Python)
 After=network-online.target
 Wants=network-online.target
 
@@ -156,10 +148,10 @@ Wants=network-online.target
 Type=simple
 User=$SERVICE_USER
 Group=$SERVICE_GROUP
-WorkingDirectory=$REPO_ROOT
+WorkingDirectory=$MEDIA_DIR
 EnvironmentFile=$ENV_DIR/worker-%i.env
 Environment=PYTHONPATH=$REPO_ROOT
-ExecStart=$UV_BIN_WORKERS run python workers/runner.py %i
+ExecStart=$UV_BIN_MEDIA run python media_pipeline/runner.py %i
 Restart=on-failure
 RestartSec=2
 StartLimitIntervalSec=60
@@ -204,10 +196,10 @@ echo "  systemctl status flipdisc-server flipdisc-orchestrator"
 echo "Tail logs with:"
 echo "  journalctl -u flipdisc-server -f"
 echo "  journalctl -u flipdisc-orchestrator -f"
-echo "To run the text-scroll worker as a service:"
-echo "  sudo systemctl enable --now flipdisc-worker@text-scroll"
+echo "To run a media pipeline worker as a service:"
+echo "  sudo systemctl enable --now flipdisc-worker@<id>"
 echo "Logs:"
-echo "  journalctl -u flipdisc-worker@text-scroll -f"
+echo "  journalctl -u flipdisc-worker@<id> -f"
 if [[ -n "${WORKERS:-}" ]]; then
   echo "Requested worker instances enabled: ${WORKERS}"
 fi

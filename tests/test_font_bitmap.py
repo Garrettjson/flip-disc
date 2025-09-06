@@ -2,13 +2,13 @@ from pathlib import Path
 
 import numpy as np
 
-from workers.common.font import BitmapFont
+from media_pipeline.common.font import BitmapFont
 
 
 def font_path() -> Path:
-    # repo root / src / assets / text / standard.bmp
+    # New location under assets/
     here = Path(__file__).resolve()
-    return here.parents[1] / "src" / "assets" / "text" / "standard.bmp"
+    return here.parents[1] / "assets" / "text" / "standard.bmp"
 
 
 def test_bitmap_font_load_and_glyph_count():
@@ -42,4 +42,3 @@ def test_trim_produces_variable_widths():
     wide = font.get("M").width
     # Expect that a typically narrow glyph is not wider than a wide one
     assert 1 <= narrow <= wide <= font.letter_width
-
