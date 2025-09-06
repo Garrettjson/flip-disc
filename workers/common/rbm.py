@@ -21,7 +21,7 @@ def pack_bitmap_1bit(rows: Iterable[Iterable[int]], width: int, height: int) -> 
         bitpos = 7
         for v in row:
             if v:
-                current |= (1 << bitpos)
+                current |= 1 << bitpos
             bitpos -= 1
             x += 1
             if bitpos < 0:
@@ -39,7 +39,14 @@ def pack_bitmap_1bit(rows: Iterable[Iterable[int]], width: int, height: int) -> 
     return bytes(out)
 
 
-def encode_rbm(frame_bits: bytes, width: int, height: int, seq: int = 0, frame_duration_ms: int = 0, flags: int = 0) -> bytes:
+def encode_rbm(
+    frame_bits: bytes,
+    width: int,
+    height: int,
+    seq: int = 0,
+    frame_duration_ms: int = 0,
+    flags: int = 0,
+) -> bytes:
     """Encode RBM header + payload (see protocol/rbm_spec.md)."""
     magic = b"RB"
     version = 1
@@ -55,4 +62,3 @@ def encode_rbm(frame_bits: bytes, width: int, height: int, seq: int = 0, frame_d
         0,  # reserved
     )
     return header + frame_bits
-

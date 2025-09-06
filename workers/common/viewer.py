@@ -16,7 +16,9 @@ class TkGridViewer:
     Draws each pixel as a square on a Canvas. Suitable for 28x14 scale-ups.
     """
 
-    def __init__(self, width: int, height: int, scale: int = 20, title: str = "Flip-Disc Viewer"):
+    def __init__(
+        self, width: int, height: int, scale: int = 20, title: str = "Flip-Disc Viewer"
+    ):
         if tk is None:
             raise RuntimeError("tkinter is not available in this environment")
         self.width = width
@@ -27,7 +29,9 @@ class TkGridViewer:
         self.root = tk.Tk()
         self.root.title(title)
         w, h = width * scale, height * scale
-        self.canvas = tk.Canvas(self.root, width=w, height=h, bg="#ffffff", highlightthickness=0)
+        self.canvas = tk.Canvas(
+            self.root, width=w, height=h, bg="#ffffff", highlightthickness=0
+        )
         self.canvas.pack()
 
     def update(self, frame: Iterable[Iterable[int]]):
@@ -60,4 +64,3 @@ class TkGridViewer:
         except tk.TclError:
             # window closed
             pass
-
