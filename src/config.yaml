@@ -1,3 +1,0 @@
-display-fps: 15
-display-shape: [1, 2]   # [x, y]
-panel-shape: [7, 28]    # [rows, cols]
