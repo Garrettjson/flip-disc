@@ -1,0 +1,10 @@
+{
+  "name": "flip-disc-tools",
+  "version": "1.0.0",
+  "description": "Build tools for flip disc project",
+  "private": true,
+  "dependencies": {
+    "kaitai-struct-compiler": "^0.11.0",
+    "yaml": "^2.0.0"
+  }
+}

@@ -1,0 +1,261 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Flip Disc Orchestrator</title>
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <div class="header">
+        <h1>🎮 Flip Disc Orchestrator</h1>
+        <p>Control panel for flip disc display animations</p>
+    </div>
+    
+    <div class="status-grid">
+        <div class="status-card">
+            <h3>Connection Status</h3>
+            <div id="server-status">
+                <span class="status-indicator status-disconnected" id="server-indicator"></span>
+                <span id="server-text">Connecting to server...</span>
+            </div>
+            <div id="orchestrator-status" style="margin-top: 10px;">
+                <span class="status-indicator status-disconnected" id="orchestrator-indicator"></span>
+                <span id="orchestrator-text">WebSocket disconnected</span>
+            </div>
+        </div>
+        
+        <div class="status-card">
+            <h3>Animation Status</h3>
+            <div>
+                <strong>Running:</strong> <span id="animation-running">No</span>
+            </div>
+            <div>
+                <strong>Credits:</strong> <span id="credits-count">-</span>
+            </div>
+            <div>
+                <strong>FPS:</strong> <span id="fps-display">-</span>
+            </div>
+            <div>
+                <strong>Frames:</strong> <span id="frame-count">-</span>
+            </div>
+        </div>
+    </div>
+    
+    <div class="controls">
+        <h3>Animation Controls</h3>
+        <button class="button" id="start-bouncing-dot" onclick="startAnimation('bouncing-dot')">
+            Start Bouncing Dot
+        </button>
+        <button class="button danger" id="stop-animation" onclick="stopAnimation()" disabled>
+            Stop Animation
+        </button>
+        <button class="button" onclick="getStatus()">
+            Refresh Status
+        </button>
+    </div>
+    
+    <div id="display-info" class="status-card" style="display: none;">
+        <h3>Display Configuration</h3>
+        <div>
+            <strong>Canvas:</strong> <span id="canvas-size">-</span>
+        </div>
+        <div>
+            <strong>Panels:</strong> <span id="panel-count">-</span>
+        </div>
+        <div>
+            <strong>Refresh Rate:</strong> <span id="refresh-rate">-</span> FPS
+        </div>
+    </div>
+    
+    <div class="log" id="log">
+        <div class="log-entry log-info">
+            <span class="log-timestamp">[--:--:--]</span>
+            Flip Disc Orchestrator UI loaded
+        </div>
+    </div>
+
+    <script>
+        // Global state
+        let ws = null;
+        let isConnected = false;
+        let animationRunning = false;
+        
+        // UI elements
+        const serverIndicator = document.getElementById('server-indicator');
+        const serverText = document.getElementById('server-text');
+        const orchestratorIndicator = document.getElementById('orchestrator-indicator');
+        const orchestratorText = document.getElementById('orchestrator-text');
+        const animationRunningSpan = document.getElementById('animation-running');
+        const creditsCount = document.getElementById('credits-count');
+        const fpsDisplay = document.getElementById('fps-display');
+        const frameCount = document.getElementById('frame-count');
+        const logDiv = document.getElementById('log');
+        
+        // Connect to orchestrator WebSocket
+        function connect() {
+            const wsUrl = `ws://${window.location.host}/ws`;
+            ws = new WebSocket(wsUrl);
+            
+            ws.onopen = () => {
+                isConnected = true;
+                updateConnectionStatus();
+                addLogEntry('Connected to orchestrator', 'success');
+                
+                // Request initial status
+                getStatus();
+            };
+            
+            ws.onmessage = (event) => {
+                const message = JSON.parse(event.data);
+                handleWebSocketMessage(message);
+            };
+            
+            ws.onclose = () => {
+                isConnected = false;
+                updateConnectionStatus();
+                addLogEntry('Disconnected from orchestrator', 'warning');
+                
+                // Attempt reconnection after 2 seconds
+                setTimeout(connect, 2000);
+            };
+            
+            ws.onerror = (error) => {
+                addLogEntry('WebSocket error: ' + error, 'error');
+            };
+        }
+        
+        function handleWebSocketMessage(message) {
+            switch (message.type) {
+                case 'connected':
+                    if (message.data.display_info) {
+                        updateDisplayInfo(message.data.display_info);
+                    }
+                    animationRunning = message.data.running;
+                    updateAnimationStatus();
+                    break;
+                    
+                case 'credits_updated':
+                    creditsCount.textContent = message.data.credits;
+                    addLogEntry(`Credits updated: ${message.data.credits}`, 'info');
+                    break;
+                    
+                case 'server_status':
+                    fpsDisplay.textContent = message.data.fps_actual.toFixed(1);
+                    break;
+                    
+                case 'frame_preview':
+                    frameCount.textContent = message.data.frame_id;
+                    break;
+                    
+                case 'server_error':
+                    addLogEntry(`Server error: ${message.data.message}`, 'error');
+                    break;
+                    
+                case 'status':
+                    updateStatus(message.data);
+                    break;
+            }
+        }
+        
+        function updateConnectionStatus() {
+            if (isConnected) {
+                orchestratorIndicator.className = 'status-indicator status-connected';
+                orchestratorText.textContent = 'Connected to orchestrator';
+            } else {
+                orchestratorIndicator.className = 'status-indicator status-disconnected';
+                orchestratorText.textContent = 'Disconnected from orchestrator';
+            }
+        }
+        
+        function updateAnimationStatus() {
+            animationRunningSpan.textContent = animationRunning ? 'Yes' : 'No';
+            
+            const startButton = document.getElementById('start-bouncing-dot');
+            const stopButton = document.getElementById('stop-animation');
+            
+            startButton.disabled = animationRunning;
+            stopButton.disabled = !animationRunning;
+            
+            if (animationRunning) {
+                orchestratorIndicator.className = 'status-indicator status-running';
+            }
+        }
+        
+        function updateDisplayInfo(displayInfo) {
+            document.getElementById('canvas-size').textContent = 
+                `${displayInfo.canvas_width} × ${displayInfo.canvas_height}`;
+            document.getElementById('panel-count').textContent = displayInfo.panel_count;
+            document.getElementById('refresh-rate').textContent = displayInfo.refresh_rate;
+            document.getElementById('display-info').style.display = 'block';
+        }
+        
+        function updateStatus(statusData) {
+            animationRunning = statusData.running;
+            updateAnimationStatus();
+            
+            if (statusData.server_connected) {
+                serverIndicator.className = 'status-indicator status-connected';
+                serverText.textContent = 'Connected to server';
+            } else {
+                serverIndicator.className = 'status-indicator status-disconnected';
+                serverText.textContent = 'Disconnected from server';
+            }
+            
+            if (statusData.scheduler_stats) {
+                creditsCount.textContent = statusData.scheduler_stats.credits;
+                fpsDisplay.textContent = statusData.scheduler_stats.average_fps.toFixed(1);
+            }
+        }
+        
+        function addLogEntry(message, type = 'info') {
+            const timestamp = new Date().toLocaleTimeString();
+            const entry = document.createElement('div');
+            entry.className = `log-entry log-${type}`;
+            entry.innerHTML = `<span class="log-timestamp">[${timestamp}]</span>${message}`;
+            
+            logDiv.appendChild(entry);
+            logDiv.scrollTop = logDiv.scrollHeight;
+            
+            // Keep only last 100 entries
+            while (logDiv.children.length > 100) {
+                logDiv.removeChild(logDiv.firstChild);
+            }
+        }
+        
+        function startAnimation(type) {
+            if (!isConnected) return;
+            
+            const workerPath = `./src/workers/${type}-worker.ts`;
+            
+            ws.send(JSON.stringify({
+                type: 'start_animation',
+                worker_path: workerPath
+            }));
+            
+            addLogEntry(`Starting ${type} animation`, 'info');
+        }
+        
+        function stopAnimation() {
+            if (!isConnected) return;
+            
+            ws.send(JSON.stringify({
+                type: 'stop_animation'
+            }));
+            
+            addLogEntry('Stopping animation', 'info');
+        }
+        
+        function getStatus() {
+            if (!isConnected) return;
+            
+            ws.send(JSON.stringify({
+                type: 'get_status'
+            }));
+        }
+        
+        // Initialize
+        connect();
+    </script>
+</body>
+</html>
