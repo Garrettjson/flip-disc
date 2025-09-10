@@ -1,117 +1,12 @@
-# Flip Disc Display Configuration
-# This file defines the display layout, panel arrangement, and hardware settings
-
-# Two panels stacked vertically (14×28 display):
-[canvas]
-width = 28
-height = 14
-
-[[panels]]
-id = "top"
-address = 0
-enabled = true
-[panels.origin]
-x = 0
-y = 0
-[panels.size]
-width = 28
-height = 7
-orientation = "normal"
-
-[[panels]]
-id = "bottom"
-address = 1
-enabled = true
-[panels.origin]
-x = 0
-y = 7
-[panels.size]
-width = 28
-height = 7
-orientation = "normal"
-
 [display]
-# Display timing settings
-refresh_rate = 30.0      # Target FPS (max 30 due to hardware constraints)
-buffer_duration = 0.5    # Frame buffer duration in seconds
+panel_type = "28x7"     # "7x7", "14x7", or "28x7"
+columns = 2             # Number of panels horizontally
+rows = 1                # Number of panels vertically
+refresh_rate = 30.0     # Target FPS
+buffer_duration = 0.5   # Frame buffer duration in seconds
 
 [serial]
-# RS-485 serial communication settings
 port = "/dev/ttyUSB0"
 baudrate = 9600
 timeout = 1.0
-mock = true              # Set to false for real hardware
-
-
-# Example configurations (uncomment and modify as needed):
-
-# One Panel (7×28 display):
-
-# [canvas]
-# # Overall canvas dimensions (entire display area)
-# width = 28
-# height = 7
-
-# # Panel definitions
-# # Each panel must have a unique ID and RS-485 address
-
-# [[panels]]
-# id = "main"
-# address = 0
-# enabled = true
-
-# # Panel position on canvas (top-left corner)
-# [panels.origin]
-# x = 0
-# y = 0
-
-# # Panel dimensions (individual panel size)
-# [panels.size]
-# width = 28
-# height = 7
-
-# # Panel orientation: "normal", "rot90", "rot180", "rot270", "fliph", "flipv"
-# orientation = "normal"
-
-
-# Two panels side by side (7×56 display):
-# [canvas]
-# width = 56
-# height = 7
-# 
-# [[panels]]
-# id = "left"
-# address = 0
-# enabled = true
-# [panels.origin]
-# x = 0
-# y = 0
-# [panels.size]
-# width = 28
-# height = 7
-# orientation = "normal"
-# 
-# [[panels]]
-# id = "right"
-# address = 1
-# enabled = true
-# [panels.origin]
-# x = 28
-# y = 0
-# [panels.size]
-# width = 28
-# height = 7
-# orientation = "normal"
-
-# Complex arrangement with rotated panels:
-# [[panels]]
-# id = "rotated_panel"
-# address = 2
-# enabled = true
-# [panels.origin]
-# x = 56
-# y = 0
-# [panels.size]
-# width = 28
-# height = 7
-# orientation = "rot90"  # Panel rotated 90 degrees clockwise
+mock = true

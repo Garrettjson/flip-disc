@@ -25,6 +25,7 @@ from .config import (
 )
 from .frame_buffer import AsyncFrameBuffer
 from .serial_controller import SerialController
+from .serial_writer import SerialConnectError
 
 # Configure logging
 logging.basicConfig(
@@ -74,8 +75,9 @@ class FlipDiscServer:
             self.serial_controller = SerialController(self.display_config)
 
             # Connect to serial interface
-            connected = await self.serial_controller.connect()
-            if not connected:
+            try:
+                await self.serial_controller.connect()
+            except SerialConnectError:
                 logger.error("Failed to connect to serial interface")
                 raise RuntimeError("Serial connection failed")
 
@@ -118,9 +120,10 @@ class FlipDiscServer:
         async def display_callback(frame):
             try:
                 # Send frame to display
-                success = await self.serial_controller.send_canvas_frame(frame.data)
-                if not success:
-                    logger.error(f"Failed to display frame {frame.frame_id}")
+                if self.serial_controller is not None:
+                    await self.serial_controller.send_canvas_frame(frame.data)
+                else:
+                    logger.error("Serial controller is not initialized (None)")
             except Exception as e:
                 logger.error(f"Error in display callback: {e}")
 

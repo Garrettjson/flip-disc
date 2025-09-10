@@ -3,14 +3,34 @@ from __future__ import annotations
 import asyncio
 import logging
 from abc import ABC, abstractmethod
-from typing import Dict, List
+from typing import Dict, Optional
 import numpy as np
 
+from serial import SerialException
 from aioserial import AioSerial
 
-from .config import DisplayConfig, PanelConfig
+from .config import DisplayConfig
+from .protocol_config import Refresh, get_protocol_config, FLUSH_COMMAND
 
 logger = logging.getLogger(__name__)
+
+
+class SerialConnectError(Exception):
+    """Raised when serial hardware cannot be initialized."""
+
+    pass
+
+
+class SerialWriteError(Exception):
+    """Raised when writing data to a panel fails."""
+
+    pass
+
+
+class SerialFlushError(Exception):
+    """Raised when flush command to panels fails."""
+
+    pass
 
 
 class SerialWriter(ABC):
@@ -20,20 +40,20 @@ class SerialWriter(ABC):
     """
 
     @abstractmethod
-    async def write_panel_data(self, panel_data: Dict[int, np.ndarray]) -> bool:
+    async def write_panel_data(self, panel_data: Dict[int, np.ndarray]) -> None:
         """
         Write data to multiple panels.
 
         Args:
             panel_data: Dict mapping panel addresses to numpy arrays of pixel data
 
-        Returns:
-            bool: True if all writes successful, False otherwise
+        Raises:
+            SerialWriteError: If writing to panels fails
         """
         pass
 
     @abstractmethod
-    async def write_single_panel(self, address: int, data: np.ndarray) -> bool:
+    async def write_single_panel(self, address: int, data: np.ndarray) -> None:
         """
         Write data to a single panel.
 
@@ -41,8 +61,8 @@ class SerialWriter(ABC):
             address: Panel RS-485 address
             data: Numpy array of pixel data (height x width)
 
-        Returns:
-            bool: True if write successful, False otherwise
+        Raises:
+            SerialWriteError: If writing to panel fails
         """
         pass
 
@@ -113,24 +133,21 @@ class MockWriter(SerialWriter):
         """Check mock connection status."""
         return self.connected
 
-    async def write_single_panel(self, address: int, data: np.ndarray) -> bool:
+    async def write_single_panel(self, address: int, data: np.ndarray) -> None:
         """Mock single panel write with detailed logging."""
         if not self.connected:
-            self.logger.error("MOCK: Not connected - cannot write")
-            return False
+            raise SerialWriteError("MOCK: Not connected - cannot write")
 
         panel = self._panels_by_address.get(address)
         if not panel:
-            self.logger.error(f"MOCK: Unknown panel address {address}")
-            return False
+            raise SerialWriteError(f"MOCK: Unknown panel address {address}")
 
         # Validate data shape
         expected_shape = (panel.size.h, panel.size.w)
         if data.shape != expected_shape:
-            self.logger.error(
+            raise SerialWriteError(
                 f"MOCK: Panel {panel.id} data shape {data.shape} != expected {expected_shape}"
             )
-            return False
 
         # Simulate write timing
         data_bytes = (panel.size.w * panel.size.h + 7) // 8
@@ -153,39 +170,33 @@ class MockWriter(SerialWriter):
         )
 
         self.write_count += 1
-        return True
 
-    async def write_panel_data(self, panel_data: Dict[int, np.ndarray]) -> bool:
+    async def write_panel_data(self, panel_data: Dict[int, np.ndarray]) -> None:
         """Mock multi-panel write with buffered strategy simulation."""
         if not self.connected:
-            self.logger.error("MOCK: Not connected - cannot write panel data")
-            return False
+            raise SerialWriteError("MOCK: Not connected - cannot write panel data")
 
         panel_count = len(panel_data)
         use_buffered = panel_count > 1
-        
+
         if use_buffered:
-            self.logger.info(f"MOCK: Buffered write to {panel_count} panels (prevents visual artifacts)")
+            self.logger.info(
+                f"MOCK: Buffered write to {panel_count} panels (prevents visual artifacts)"
+            )
         else:
             self.logger.info(f"MOCK: Direct write to {panel_count} panel")
 
-        success = True
         for address, data in panel_data.items():
-            panel_success = await self.write_single_panel(address, data)
-            if not panel_success:
-                success = False
+            await self.write_single_panel(address, data)
 
         # Simulate flush command for multi-panel updates
-        if use_buffered and success:
+        if use_buffered:
             await asyncio.sleep(0.001)  # Simulate flush command timing
-            self.logger.info("MOCK: Flush command sent - all panels refresh simultaneously")
+            self.logger.info(
+                "MOCK: Flush command sent - all panels refresh simultaneously"
+            )
 
-        if success:
-            self.logger.info("MOCK: All panel writes completed successfully")
-        else:
-            self.logger.error("MOCK: Some panel writes failed")
-
-        return success
+        self.logger.info("MOCK: All panel writes completed successfully")
 
 
 class HardwareWriter(SerialWriter):
@@ -194,33 +205,22 @@ class HardwareWriter(SerialWriter):
     Uses aioserial for async RS-485 communication with flip disc panels.
     """
 
-    # Protocol constants
+    # Protocol constants from manufacturer documentation
     HEADER = 0x80
     EOT = 0x8F
-
-    # Configuration byte mapping
-    _CFG_MAP_INSTANT = {
-        0: 0x82,  # config only
-        7: 0x87,  # 7-byte data
-        14: 0x92,  # 14-byte data
-        28: 0x83,  # 28-byte data
-    }
-
-    _CFG_MAP_NON_INSTANT = {
-        14: 0x93,  # 14-byte data (non-instant)
-        28: 0x84,  # 28-byte data (non-instant)
-    }
 
     def __init__(
         self,
         display_config: DisplayConfig,
-        instant_refresh: bool = True,
         interpanel_delay_us: int = 0,
     ):
         self.config = display_config
-        self.instant_refresh = instant_refresh
         self.interpanel_delay = interpanel_delay_us / 1_000_000.0  # Convert to seconds
-        self.serial: AioSerial | None = None
+        self._serial: AioSerial | None = None
+
+        # prevents connect/disconnect races
+        self._io_lock = asyncio.Lock()
+        self._tx_lock = asyncio.Lock()
 
         # Create panel lookup
         self._panels_by_address = {
@@ -229,205 +229,206 @@ class HardwareWriter(SerialWriter):
 
         self.logger = logging.getLogger(f"{__name__}.hardware")
 
-    async def connect(self) -> bool:
+        # Get panel data bytes from config (already validated as DataBytes enum)
+        self.panel_data_bytes = self.config.panel_type
+
+    @property
+    def serial(self) -> AioSerial:
+        if self._serial is None:
+            raise SerialConnectError("HardwareWriter not connected")
+        return self._serial
+
+    async def connect(self):
         """Connect to real serial hardware."""
-        try:
-            # Configure serial based on config
-            self.serial = AioSerial(
-                self.config.serial.port,
-                self.config.serial.baudrate,
-                timeout=self.config.serial.timeout,
-            )
+        async with self._io_lock:
+            if self._serial is not None:
+                return  # already connected
 
-            self.logger.info(
-                f"Connected to {self.config.serial.port} at {self.config.serial.baudrate} baud"
-            )
-            self.logger.info(
-                f"Instant refresh: {self.instant_refresh}, interpanel delay: {self.interpanel_delay*1000:.1f}ms"
-            )
+            try:
+                # Configure serial based on config
+                self._serial = AioSerial(
+                    self.config.serial.port,
+                    self.config.serial.baudrate,
+                    timeout=self.config.serial.timeout,
+                )
 
-            return True
+                self.logger.info(
+                    f"Connected to {self.config.serial.port} at {self.config.serial.baudrate} baud"
+                )
+                self.logger.info(
+                    f"interpanel delay: {self.interpanel_delay*1000:.1f}ms"
+                )
 
-        except Exception as e:
-            self.logger.error(
-                f"Failed to connect to serial port {self.config.serial.port}: {e}"
-            )
-            return False
+            except (SerialException, OSError, ValueError) as e:
+                raise SerialConnectError(
+                    f"Failed to connect to serial port {self.config.serial.port}: {e}"
+                )
 
     async def disconnect(self) -> None:
         """Disconnect from serial hardware."""
-        if self.serial:
-            try:
-                self.serial.close()
-                self.logger.info("Serial connection closed")
-            except Exception as e:
-                self.logger.warning(f"Error closing serial connection: {e}")
-            finally:
-                self.serial = None
+        async with self._io_lock:
+            # clear first to block new users
+            s, self._serial = self._serial, None
+        if s is None:
+            return
+        try:
+            s.close()
+            self.logger.info("Serial connection closed")
+        except Exception as e:
+            self.logger.warning(f"Error closing serial connection: {e}")
+        finally:
+            s = None
 
     def is_connected(self) -> bool:
         """Check if serial connection is active."""
-        return self.serial is not None and not self.serial.is_closing
+        return self._serial is not None and self._serial.is_open
 
     def _pack_panel_data(self, data: np.ndarray) -> bytes:
         """Pack numpy array into bytes for transmission."""
-        # Pack 8 pixels per byte, MSB first
-        flat_data = data.flatten()
-        packed_bytes = []
+        """Pack numpy array into bytes for transmission (8 pixels per byte, MSB first)."""
+        flat = data.flatten()
+        out = bytearray((len(flat) + 7) // 8)
+        for i, bit in enumerate(flat):
+            if bit:
+                byte_index, bit_pos = divmod(i, 8)
+                out[byte_index] |= 1 << (7 - bit_pos)
+        return bytes(out)
 
-        for i in range(0, len(flat_data), 8):
-            byte_value = 0
-            for bit_pos in range(8):
-                if i + bit_pos < len(flat_data):
-                    if flat_data[i + bit_pos]:
-                        byte_value |= 1 << (7 - bit_pos)
-            packed_bytes.append(byte_value)
-
-        return bytes(packed_bytes)
-
-    def _build_message(self, panel: PanelConfig, data: bytes) -> bytes:
+    def _build_message(self, panel, data: bytes, *, buffered: bool) -> bytes:
         """Build complete serial message for panel."""
-        data_len = len(data)
+        # Get protocol configuration based on panel type and refresh mode
+        refresh_mode = Refresh.BUFFER if buffered else Refresh.INSTANT
+        protocol_config = get_protocol_config(self.panel_data_bytes, refresh_mode)
 
-        # Select config byte based on data length and refresh mode
-        if self.instant_refresh:
-            cfg_byte = self._CFG_MAP_INSTANT.get(data_len, 0x83)
-        else:
-            cfg_byte = self._CFG_MAP_NON_INSTANT.get(data_len, 0x84)
+        # Validate data length matches expected
+        if len(data) != protocol_config.data_bytes:
+            raise SerialWriteError(
+                f"Panel '{panel.id}' data length {len(data)} != expected {protocol_config.data_bytes} "
+                f"for {self.panel_data_bytes} panels"
+            )
 
         # Build message: HEADER + CFG + ADDRESS + DATA + EOT
         message = (
-            bytes([self.HEADER, cfg_byte, panel.address & 0xFF])
+            bytes([self.HEADER, protocol_config.command_byte, panel.address & 0xFF])
             + data
             + bytes([self.EOT])
         )
 
         return message
 
-    async def write_single_panel(self, address: int, data: np.ndarray) -> bool:
-        """Write data to a single panel via serial."""
-        if not self.is_connected():
-            self.logger.error("Not connected to serial port")
-            return False
-
+    def _prepare_panel_message(
+        self, address: int, data: np.ndarray, *, buffered: bool
+    ) -> bytes:
+        """Validate shape, pack pixels, and build a message for a given panel."""
         panel = self._panels_by_address.get(address)
         if not panel:
-            self.logger.error(f"Unknown panel address {address}")
-            return False
+            raise SerialWriteError(f"Unknown panel address {address}")
 
-        try:
-            # Validate data shape
-            expected_shape = (panel.size.h, panel.size.w)
-            if data.shape != expected_shape:
-                self.logger.error(
-                    f"Panel {panel.id} data shape {data.shape} != expected {expected_shape}"
-                )
-                return False
+        expected_shape = (panel.size.h, panel.size.w)
+        if data.shape != expected_shape:
+            raise SerialWriteError(
+                f"Panel {panel.id} data shape {data.shape} != expected {expected_shape}"
+            )
+        packed = self._pack_panel_data(data)
+        return self._build_message(panel, packed, buffered=buffered)
 
-            # Pack and build message
-            packed_data = self._pack_panel_data(data)
-            message = self._build_message(panel, packed_data)
+    async def _send_bytes_unlocked(self, payload: bytes) -> int:
+        """Low-level send. Caller must hold _tx_lock."""
+        bytes_written = await self.serial.write_async(payload)
+        return bytes_written
 
-            # Send message
-            bytes_written = await self.serial.write_async(message)
-
-            if bytes_written == len(message):
-                pixels_on = np.sum(data)
-                self.logger.debug(
-                    f"Panel '{panel.id}' (addr {address}) - {pixels_on}/{data.size} pixels, {len(message)} bytes"
-                )
-                return True
-            else:
-                self.logger.error(
-                    f"Panel {panel.id} - wrote {bytes_written}/{len(message)} bytes"
-                )
-                return False
-
-        except Exception as e:
-            self.logger.error(f"Failed to write to panel {panel.id}: {e}")
-            return False
-
-    async def write_panel_data(self, panel_data: Dict[int, np.ndarray]) -> bool:
+    async def write_single_panel(self, address: int, data: np.ndarray) -> None:
         """
-        Write data to multiple panels using buffered strategy.
-        
-        For multi-panel displays, uses buffered writes followed by a single flush
-        to ensure all panels update simultaneously, preventing the "wipe across" effect.
+        Write a single panel with **unbuffered** (immediate) update.
+        Safe for concurrent callers (serialized via _tx_lock).
         """
         if not self.is_connected():
-            self.logger.error("Not connected to serial port")
-            return False
+            raise SerialWriteError("Not connected to serial port")
 
-        panel_count = len(panel_data)
-        self.logger.debug(f"Writing to {panel_count} panels with buffered strategy")
+        # Prepare outside the lock
+        message = self._prepare_panel_message(address, data, buffered=False)
 
-        # Use buffered writes for multi-panel updates to prevent visual artifacts
-        use_buffered = panel_count > 1
-        
-        if use_buffered:
-            # Temporarily disable instant refresh for buffering
-            original_instant_refresh = self.instant_refresh
-            self.instant_refresh = False
-            
-        success = True
         try:
-            # Send data to all panels (buffered, no immediate display update)
-            for address, data in panel_data.items():
-                panel_success = await self.write_single_panel(address, data)
-                if not panel_success:
-                    success = False
-                    break
+            async with self._tx_lock:
+                bytes_written = await self._send_bytes_unlocked(message)
 
-                # Inter-panel delay if configured
-                if self.interpanel_delay > 0:
-                    await asyncio.sleep(self.interpanel_delay)
+                if bytes_written != len(message):
+                    raise SerialWriteError(
+                        f"Panel addr {address} - wrote {bytes_written}/{len(message)} bytes"
+                    )
+            self.logger.debug(
+                "Panel addr %d immediate write ok (%d bytes)", address, len(message)
+            )
 
-            # If buffered mode and all writes successful, send flush command
-            if use_buffered and success:
-                flush_success = await self._flush_all_panels()
-                if not flush_success:
-                    success = False
-                    
-        finally:
-            # Restore original instant refresh setting
-            if use_buffered:
-                self.instant_refresh = original_instant_refresh
+        except (SerialException, OSError, ValueError) as e:
+            self.logger.debug("Failed to write to panel %s", address, exc_info=True)
+            raise SerialWriteError(f"Failed to write to panel {address}: {e}") from e
 
-        if success:
-            self.logger.debug(f"All {panel_count} panel writes completed successfully")
-        else:
-            self.logger.error("Some panel writes failed")
-
-        return success
-
-    async def _flush_all_panels(self) -> bool:
+    async def write_panel_data(self, panel_data: Dict[int, np.ndarray]) -> None:
         """
-        Send flush command to refresh all buffered panels simultaneously.
-        
-        Sends the 0x82 config command (refresh/instant) to cause all panels
-        to apply their buffered data at the same time.
+        Buffered multi-panel write: buffer all panels, then flush once.
+        Holds the TX lock for the entire batch to prevent interleaving.
         """
+        if not self.is_connected():
+            raise SerialWriteError("Not connected to serial port")
+
+        # Build all messages first (validate shapes, pack) to minimize lock time
         try:
-            # Build flush message: HEADER + 0x82 (refresh config) + dummy address + EOT
-            # Address doesn't matter for broadcast refresh, using 0xFF
-            flush_message = bytes([self.HEADER, 0x82, 0xFF, self.EOT])
-            
-            bytes_written = await self.serial.write_async(flush_message)
-            
-            if bytes_written == len(flush_message):
-                self.logger.debug("Flush command sent successfully - all panels refreshed")
-                return True
+            messages = [
+                self._prepare_panel_message(addr, data, buffered=True)
+                for addr, data in panel_data.items()
+            ]
+        except SerialWriteError:
+            # propagate validation errors as-is
+            raise
+
+        try:
+            async with self._tx_lock:
+                for msg in messages:
+                    bytes_written = await self._send_bytes_unlocked(msg)
+                    if bytes_written != len(msg):
+                        raise SerialWriteError(
+                            f"Buffered write short: wrote {bytes_written}/{len(msg)} bytes"
+                        )
+                    if self.interpanel_delay > 0:
+                        await asyncio.sleep(self.interpanel_delay)
+
+                # Always flush at the end for buffered batch
+                await self.flush_all_panels(locked=True)
+
+            self.logger.debug(
+                "Buffered batch write complete (%d panels)", len(messages)
+            )
+
+        except (SerialException, OSError, ValueError) as e:
+            self.logger.debug("Buffered batch write failed", exc_info=True)
+            raise SerialWriteError(f"Buffered batch write failed: {e}") from e
+
+    async def flush_all_panels(self, *, locked: bool = False) -> None:
+        """
+        Public flush: refresh all buffered panels simultaneously.
+        If `locked=True`, assumes the caller already holds `_tx_lock`.
+        """
+        flush_message = bytes([self.HEADER, FLUSH_COMMAND, 0xFF, self.EOT])
+        try:
+            if locked:
+                n = await self._send_bytes_unlocked(flush_message)
             else:
-                self.logger.error(f"Flush command failed - wrote {bytes_written}/{len(flush_message)} bytes")
-                return False
-                
-        except Exception as e:
-            self.logger.error(f"Failed to send flush command: {e}")
-            return False
+                async with self._tx_lock:
+                    n = await self._send_bytes_unlocked(flush_message)
+            if n != len(flush_message):
+                raise SerialFlushError(
+                    f"Flush command failed - wrote {n}/{len(flush_message)} bytes"
+                )
+            self.logger.debug("Flush command sent successfully - all panels refreshed")
+
+        except (SerialException, OSError, ValueError) as e:
+            self.logger.debug("Failed to send flush command", exc_info=True)
+            raise SerialFlushError(f"Failed to send flush command: {e}") from e
 
 
 def create_writer(
-    display_config: DisplayConfig, use_hardware: bool = None
+    display_config: DisplayConfig, use_hardware: Optional[bool] = None
 ) -> SerialWriter:
     """
     Factory function to create the appropriate writer based on configuration.

@@ -5,9 +5,6 @@
  * Format: [4B magic][2B seq][4B ts][2B width][2B height][2B payload_len][N bytes bitmap]
  */
 
-// Import the generated Kaitai parser from local gen directory  
-import '../../gen/ts/FlipdiscFrame.js';
-
 export interface FrameData {
   width: number;
   height: number;
