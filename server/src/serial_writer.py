@@ -268,31 +268,25 @@ class HardwareWriter(SerialWriter):
         """Disconnect from serial hardware."""
         async with self._io_lock:
             # clear first to block new users
-            s, self._serial = self._serial, None
-        if s is None:
+            serial, self._serial = self._serial, None
+        if serial is None:
             return
         try:
-            s.close()
+            serial.close()
             self.logger.info("Serial connection closed")
         except Exception as e:
             self.logger.warning(f"Error closing serial connection: {e}")
         finally:
-            s = None
+            serial = None
 
     def is_connected(self) -> bool:
         """Check if serial connection is active."""
         return self._serial is not None and self._serial.is_open
 
     def _pack_panel_data(self, data: np.ndarray) -> bytes:
-        """Pack numpy array into bytes for transmission."""
         """Pack numpy array into bytes for transmission (8 pixels per byte, MSB first)."""
-        flat = data.flatten()
-        out = bytearray((len(flat) + 7) // 8)
-        for i, bit in enumerate(flat):
-            if bit:
-                byte_index, bit_pos = divmod(i, 8)
-                out[byte_index] |= 1 << (7 - bit_pos)
-        return bytes(out)
+        flat = data.astype(np.uint8).ravel()
+        return np.packbits(flat, bitorder="big").tobytes()
 
     def _build_message(self, panel, data: bytes, *, buffered: bool) -> bytes:
         """Build complete serial message for panel."""

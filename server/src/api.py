@@ -18,12 +18,8 @@ from fastapi import (
 )
 from pydantic import BaseModel
 from .frame_buffer import Frame, validate_frame_for_display
+from gen.py.flipdisc_frame import FlipdiscFrame
 
-try:
-    from gen.py.flipdisc_frame import FlipdiscFrame
-except ImportError as e:
-    logging.error(f"Failed to import Kaitai parser: {e}")
-    FlipdiscFrame = None
 
 logger = logging.getLogger(__name__)
 
@@ -296,17 +292,20 @@ def parse_frame_from_binary(
     """
     if FlipdiscFrame is None:
         raise ValueError("Kaitai parser not available")
-    
+
     try:
         # Parse frame using Kaitai Struct
         parsed_frame = FlipdiscFrame.from_bytes(data)
-        
+
         # Validate dimensions against expected values
-        if parsed_frame.width != expected_width or parsed_frame.height != expected_height:
+        if (
+            parsed_frame.width != expected_width
+            or parsed_frame.height != expected_height
+        ):
             raise ValueError(
                 f"Frame dimensions {parsed_frame.width}x{parsed_frame.height} don't match expected {expected_width}x{expected_height}"
             )
-        
+
         # Create Frame object compatible with existing system
         return Frame(
             frame_id=parsed_frame.seq,  # Use sequence number as frame ID
@@ -316,7 +315,7 @@ def parse_frame_from_binary(
             data=parsed_frame.bitmap_data,
             timestamp=parsed_frame.timestamp,
         )
-        
+
     except Exception as e:
         raise ValueError(f"Failed to parse frame data: {e}") from e
 
