@@ -199,16 +199,10 @@ async def send_test_pattern(pattern: str, server=Depends(get_server)):
         )
 
     try:
-        success = await server.serial_controller.send_test_pattern(pattern)
-
-        if success:
-            return ControlResponse(
-                success=True, message=f"Test pattern '{pattern}' sent successfully"
-            )
-        else:
-            raise HTTPException(
-                status_code=500, detail=f"Failed to send test pattern '{pattern}'"
-            )
+        await server.serial_controller.send_test_pattern(pattern)
+        return ControlResponse(
+            success=True, message=f"Test pattern '{pattern}' sent successfully"
+        )
 
     except Exception as e:
         logger.error(f"Error sending test pattern: {e}")

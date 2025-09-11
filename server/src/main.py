@@ -20,12 +20,11 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from .config import (
     DisplayConfig,
-    load_config_from_toml,
-    create_default_single_panel_config,
+    load_from_toml,
+    default_config,
 )
 from .frame_buffer import AsyncFrameBuffer
 from .serial_controller import SerialController
-from .serial_writer import SerialConnectError
 
 # Configure logging
 logging.basicConfig(
@@ -61,12 +60,12 @@ class FlipDiscServer:
             # Load configuration
             if self.config_path.exists():
                 logger.info(f"Loading configuration from {self.config_path}")
-                self.display_config = load_config_from_toml(self.config_path)
+                self.display_config = load_from_toml(self.config_path)
             else:
                 logger.warning(
-                    f"Config file {self.config_path} not found, using default single panel"
+                    f"Config file {self.config_path} not found, using default configuration"
                 )
-                self.display_config = create_default_single_panel_config()
+                self.display_config = default_config()
 
             # Initialize frame buffer
             self.frame_buffer = AsyncFrameBuffer(self.display_config)
@@ -75,11 +74,7 @@ class FlipDiscServer:
             self.serial_controller = SerialController(self.display_config)
 
             # Connect to serial interface
-            try:
-                await self.serial_controller.connect()
-            except SerialConnectError:
-                logger.error("Failed to connect to serial interface")
-                raise RuntimeError("Serial connection failed")
+            await self.serial_controller.connect()
 
             logger.info("Server startup completed successfully")
 
@@ -168,7 +163,7 @@ class FlipDiscServer:
         if self.display_config:
             stats["display"] = {
                 "canvas_size": f"{self.display_config.canvas_size.w}x{self.display_config.canvas_size.h}",
-                "panel_count": self.display_config.panel_count,
+                "panel_count": len(self.display_config.panels),
                 "refresh_rate": self.display_config.refresh_rate,
             }
 

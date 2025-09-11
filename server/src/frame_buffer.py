@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from typing import Optional, Dict, Any
 
 from .config import DisplayConfig
+from .validation import validate_canvas_data_size
 
 logger = logging.getLogger(__name__)
 
@@ -352,12 +353,7 @@ def create_frame_for_canvas(
     canvas_w = display_config.canvas_size.w
     canvas_h = display_config.canvas_size.h
 
-    stride = (canvas_w + 7) // 8
-    expected_bytes = canvas_h * stride
-    if len(canvas_data) != expected_bytes:
-        raise ValueError(
-            f"Canvas data size {len(canvas_data)} doesn't match expected {expected_bytes}"
-        )
+    validate_canvas_data_size(len(canvas_data), canvas_w, canvas_h)
 
     return Frame(
         frame_id=frame_id,

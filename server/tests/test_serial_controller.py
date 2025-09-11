@@ -4,40 +4,34 @@ import pytest
 import numpy as np
 import asyncio
 
-from src.config import create_default_single_panel_config, create_stacked_panels_config
-from src.serial_controller import SerialController
+from src.config import default_config
+from src.serial_controller import SerialController, NotConnectedError, PanelFrameError, CanvasFrameError, TestPatternError
 from src.panel_mapper import create_test_pattern, update_panels
 
 
 @pytest.fixture
-def single_panel_config():
-    """Single panel configuration for testing."""
-    return create_default_single_panel_config()
+def test_config():
+    """Test configuration for testing."""
+    return default_config()
 
 
 @pytest.fixture
-def stacked_config():
-    """Stacked panels configuration for testing."""  
-    return create_stacked_panels_config()
-
-
-@pytest.fixture
-def mock_controller(single_panel_config):
+def mock_controller(test_config):
     """Create mock serial controller for testing."""
-    return SerialController(single_panel_config, use_hardware=False)
+    return SerialController(test_config, use_hardware=False)
 
 
 @pytest.mark.asyncio
-async def test_serial_controller_initialization(mock_controller, single_panel_config):
+async def test_serial_controller_initialization(mock_controller, test_config):
     """Test serial controller initializes correctly."""
-    assert mock_controller.config == single_panel_config
+    assert mock_controller.config == test_config
     assert not mock_controller.is_connected()
     
     # Test panel lookup
     panel = mock_controller.get_panel_by_address(0)
     assert panel is not None
-    assert panel.id == "main"
-    assert panel.size.w == 28
+    assert panel.id == "top_left"
+    assert panel.size.w == 14
     assert panel.size.h == 7
 
 
@@ -62,58 +56,41 @@ async def test_send_panel_frame(mock_controller):
     """Test sending frame to individual panel."""
     await mock_controller.connect()
     
-    # Create test frame data (7x28 for single panel)
-    frame_data = np.zeros((7, 28), dtype=bool)
+    # Create test frame data (7x14 for default config panel)
+    frame_data = np.zeros((7, 14), dtype=bool)
     frame_data[0, :] = True  # Top row on
     frame_data[-1, :] = True  # Bottom row on
     
-    # Send to panel address 0
-    success = await mock_controller.send_panel_frame(0, frame_data)
-    assert success is True
+    # Send to panel address 0 - should succeed
+    await mock_controller.send_panel_frame(0, frame_data)
     
-    # Test invalid panel address
-    success = await mock_controller.send_panel_frame(99, frame_data)
-    assert success is False
+    # Test invalid panel address - should raise exception
+    with pytest.raises(PanelFrameError, match="Unknown panel address 99"):
+        await mock_controller.send_panel_frame(99, frame_data)
     
-    # Test invalid frame dimensions
+    # Test invalid frame dimensions - should raise exception
     wrong_size_data = np.zeros((5, 20), dtype=bool)
-    success = await mock_controller.send_panel_frame(0, wrong_size_data)
-    assert success is False
+    with pytest.raises(PanelFrameError, match="frame shape"):
+        await mock_controller.send_panel_frame(0, wrong_size_data)
 
 
 @pytest.mark.asyncio
-async def test_send_canvas_frame_single_panel(mock_controller, single_panel_config):
-    """Test sending full canvas frame to single panel."""
+async def test_send_canvas_frame_multi_panel(mock_controller, test_config):
+    """Test sending full canvas frame to multiple panels."""
     await mock_controller.connect()
     
     # Create test pattern
-    canvas_bits = create_test_pattern(single_panel_config, "checkerboard")
+    canvas_bits = create_test_pattern(test_config, "checkerboard")
     
-    # Send canvas frame
-    success = await mock_controller.send_canvas_frame(canvas_bits)
-    assert success is True
+    # Send canvas frame - should succeed
+    await mock_controller.send_canvas_frame(canvas_bits)
     
-    # Test with invalid canvas size
-    wrong_size_bits = b'\x00' * 10  # Too small for 28x7 canvas
-    success = await mock_controller.send_canvas_frame(wrong_size_bits)
-    assert success is False
+    # Test with invalid canvas size - should raise exception
+    wrong_size_bits = b'\x00' * 10  # Too small for 28x28 canvas
+    with pytest.raises(CanvasFrameError):
+        await mock_controller.send_canvas_frame(wrong_size_bits)
 
 
-@pytest.mark.asyncio
-async def test_send_canvas_frame_stacked_panels():
-    """Test sending canvas frame to multiple stacked panels."""
-    stacked_config = create_stacked_panels_config()
-    controller = SerialController(stacked_config, use_hardware=False)
-    
-    await controller.connect()
-    
-    # Create test pattern for 14x28 canvas (two panels stacked)
-    canvas_bits = create_test_pattern(stacked_config, "border")
-    
-    success = await controller.send_canvas_frame(canvas_bits)
-    assert success is True
-    
-    await controller.disconnect()
 
 
 @pytest.mark.asyncio
@@ -121,16 +98,15 @@ async def test_send_test_patterns(mock_controller):
     """Test sending built-in test patterns."""
     await mock_controller.connect()
     
-    # Test each pattern type
+    # Test each pattern type - should all succeed
     patterns = ["checkerboard", "border", "solid", "gradient"]
     
     for pattern in patterns:
-        success = await mock_controller.send_test_pattern(pattern)
-        assert success is True, f"Failed to send {pattern} pattern"
+        await mock_controller.send_test_pattern(pattern)
     
-    # Test invalid pattern
-    success = await mock_controller.send_test_pattern("invalid_pattern")
-    assert success is True  # Should fall back to checkerboard
+    # Test invalid pattern - should raise exception
+    with pytest.raises(TestPatternError):
+        await mock_controller.send_test_pattern("invalid_pattern")
 
 
 def test_panel_mapper_single_panel(single_panel_config):
