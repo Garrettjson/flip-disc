@@ -10,7 +10,7 @@ doc: |
   Binary protocol for flip disc display frames.
   
   Each frame contains:
-  - Fixed 16-byte header with magic, sequence, timestamp, dimensions
+  - Fixed 20-byte header with magic, sequence, pts_ns, dimensions
   - Variable-length bitmap payload (1 bit per pixel, packed)
   
   The payload length is validated to match ceil(width/8) * height.
@@ -24,9 +24,9 @@ seq:
     type: u2
     doc: Sequence number for frame ordering
     
-  - id: timestamp
-    type: u4
-    doc: Unix timestamp when frame was generated
+  - id: pts_ns
+    type: u8
+    doc: Presentation timestamp in nanoseconds (monotonic epoch)
     
   - id: width
     type: u2

@@ -16,7 +16,7 @@ class FlipdiscFrame(KaitaiStruct):
     """Binary protocol for flip disc display frames.
 
     Each frame contains:
-    - Fixed 16-byte header with magic, sequence, timestamp, dimensions
+    - Fixed 20-byte header with magic, sequence, pts_ns, dimensions
     - Variable-length bitmap payload (1 bit per pixel, packed)
 
     The payload length is validated to match ceil(width/8) * height.
@@ -35,7 +35,7 @@ class FlipdiscFrame(KaitaiStruct):
                 b"\x46\x44\x49\x53", self.magic, self._io, "/seq/0"
             )
         self.seq = self._io.read_u2le()
-        self.timestamp = self._io.read_u4le()
+        self.pts_ns = self._io.read_u8le()
         self.width = self._io.read_u2le()
         if not self.width >= 1:
             raise kaitaistruct.ValidationLessThanError(

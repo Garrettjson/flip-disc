@@ -28,9 +28,10 @@ def create_test_frame(width=28, height=7, seq=1):
     # Sequence number (2 bytes, little-endian)
     frame_data.extend(seq.to_bytes(2, "little"))
 
-    # Timestamp (4 bytes, little-endian)
-    timestamp = 1694649600  # Fixed timestamp for testing
-    frame_data.extend(timestamp.to_bytes(4, "little"))
+    # PTS in nanoseconds (8 bytes, little-endian)
+    timestamp = 1694649600  # Fixed timestamp base for testing
+    pts_ns = timestamp * 1_000_000_000
+    frame_data.extend(pts_ns.to_bytes(8, "little"))
 
     # Width (2 bytes, little-endian)
     frame_data.extend(width.to_bytes(2, "little"))
@@ -71,9 +72,11 @@ def test_invalid_magic():
 def test_payload_mismatch():
     """Mismatched payload length raises validation error."""
     frame_data = bytearray(create_test_frame(28, 7, 1))
-    # Corrupt payload_len field (bytes 12..13 for width/height, 14..15 payload_len)
-    frame_data[14] = 10
-    frame_data[15] = 0
+    # Corrupt payload_len field (offset changes without timestamp)
+    # Header: 4(magic)+2(seq)+8(pts)+2(w)+2(h)+2(len)
+    # Payload len low byte at offset 4+2+8+2+2 = 18 (lo) and 19 (hi)
+    frame_data[18] = 10
+    frame_data[19] = 0
     try:
         FlipdiscFrame.from_bytes(bytes(frame_data))
         assert False, "Expected validation error for payload mismatch"

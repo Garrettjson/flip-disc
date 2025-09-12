@@ -73,6 +73,36 @@ export class ServerCommunicationService {
     }
   }
 
+  // Control: Set target FPS on the server
+  async setTargetFps(target_fps: number): Promise<boolean> {
+    if (!Number.isFinite(target_fps) || target_fps <= 0) {
+      throw new Error(`Invalid target_fps: ${target_fps}`);
+    }
+    const response = await fetch(`${this.config.api_base}/control/fps`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ target_fps })
+    });
+    if (!response.ok) {
+      let detail = '';
+      try { const data = await response.json(); detail = data.detail || ''; } catch {}
+      throw new Error(`Failed to set FPS: ${response.status} ${response.statusText}${detail ? ` - ${detail}` : ''}`);
+    }
+    return true;
+  }
+
+  // Control: Start display loop on server
+  async startDisplay(): Promise<boolean> {
+    const response = await fetch(`${this.config.api_base}/control/start`, { method: 'POST' });
+    return response.ok;
+  }
+
+  // Control: Stop display loop on server
+  async stopDisplay(): Promise<boolean> {
+    const response = await fetch(`${this.config.api_base}/control/stop`, { method: 'POST' });
+    return response.ok;
+  }
+
   // WebSocket Methods - delegate to ServerWebSocketClient
   async connectWebSocket(): Promise<void> {
     return this.serverSocket.connect();

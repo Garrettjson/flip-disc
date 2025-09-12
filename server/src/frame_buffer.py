@@ -71,6 +71,11 @@ class AsyncFrameBuffer:
             "credits_given": 0,
         }
 
+        # Effective FPS measurement (rolling window)
+        self._fps_window_start = time.monotonic()
+        self._fps_window_count = 0
+        self._fps_last = 0.0
+
         logger.info(
             f"Frame buffer initialized: {self.target_fps}fps, {self.buffer_duration}s buffer ({self.max_buffer_size} frames)"
         )
@@ -204,6 +209,14 @@ class AsyncFrameBuffer:
                 self._last_display_time = current_time
                 self._stats["frames_displayed"] += 1
 
+                # Update FPS window
+                self._fps_window_count += 1
+                elapsed = current_time - self._fps_window_start
+                if elapsed >= 1.0:
+                    self._fps_last = self._fps_window_count / elapsed
+                    self._fps_window_start = current_time
+                    self._fps_window_count = 0
+
                 # Give back a credit since we consumed a frame
                 await self.add_credits(1)
 
@@ -252,12 +265,21 @@ class AsyncFrameBuffer:
             "buffer_utilization": len(self._buffer) / self.max_buffer_size,
             "credits_available": self._credits,
             "target_fps": self.target_fps,
+            "fps_actual": self._fps_last,
             "frame_interval": self.frame_interval,
             "current_frame_id": (
                 self._current_frame.frame_id if self._current_frame else None
             ),
             "stats": self._stats.copy(),
         }
+
+    def update_target_fps(self, fps: float) -> None:
+        if fps <= 0:
+            raise ValueError("FPS must be > 0")
+        self.target_fps = fps
+        self.frame_interval = 1.0 / fps
+        # reset pacing window to avoid a long catch-up
+        self._last_display_time = 0.0
 
     def get_buffer_health(self) -> Dict[str, Any]:
         """

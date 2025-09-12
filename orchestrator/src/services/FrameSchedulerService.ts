@@ -17,6 +17,7 @@ export interface FrameSchedulerConfig {
   target_fps: number;
   max_credits: number;
   credit_threshold: number; // Minimum credits before generating frames
+  generate_on_credits?: boolean; // If true, drain credits immediately (burst mode)
 }
 
 export type FrameGenerator = () => Promise<Frame | null>;
@@ -38,6 +39,7 @@ export class FrameSchedulerService {
   private running: boolean = false;
   private animation_loop_id: number | null = null;
   private frame_generator: FrameGenerator | null = null;
+  private draining: boolean = false;
 
   // Statistics
   private stats = {
@@ -72,8 +74,12 @@ export class FrameSchedulerService {
     
     console.log(`Starting frame scheduler at ${this.config.target_fps} FPS`);
     
-    // Start the animation loop
-    this.scheduleNextFrame();
+    // If configured to generate on credits, start draining now; otherwise start paced loop
+    if (this.config.generate_on_credits) {
+      void this.drainCredits();
+    } else {
+      this.scheduleNextFrame();
+    }
   }
 
   /**
@@ -111,9 +117,13 @@ export class FrameSchedulerService {
       delta: this.credits - old_credits
     });
 
-    // If we now have credits and were waiting, try to generate a frame
-    if (this.credits > this.config.credit_threshold && old_credits <= this.config.credit_threshold) {
-      this.tryGenerateFrame();
+    // If we now have credits and were waiting, drain or generate next
+    if (this.credits > this.config.credit_threshold) {
+      if (this.config.generate_on_credits) {
+        void this.drainCredits();
+      } else if (this.animation_loop_id === null && this.running) {
+        this.scheduleNextFrame();
+      }
     }
   }
 
@@ -154,17 +164,21 @@ export class FrameSchedulerService {
     const time_until_next = Math.max(0, this.next_frame_time - now);
     
     this.animation_loop_id = setTimeout(() => {
-      this.tryGenerateFrame();
-      
-      // Schedule next frame
-      this.next_frame_time += this.frame_interval;
-      
-      // If we've fallen behind, catch up (but don't generate multiple frames at once)
-      if (this.next_frame_time < performance.now()) {
+      // Only attempt generation if we have credits; otherwise pause the loop
+      if (this.credits > this.config.credit_threshold) {
+        this.tryGenerateFrame();
+
+        // Schedule next frame
+        this.next_frame_time += this.frame_interval;
+        if (this.next_frame_time < performance.now()) {
+          this.next_frame_time = performance.now() + this.frame_interval;
+        }
+        this.scheduleNextFrame();
+      } else {
+        // Pause until credits arrive
+        this.animation_loop_id = null;
         this.next_frame_time = performance.now() + this.frame_interval;
       }
-      
-      this.scheduleNextFrame();
     }, time_until_next);
   }
 
@@ -178,7 +192,7 @@ export class FrameSchedulerService {
 
     // Check if we have enough credits
     if (this.credits <= this.config.credit_threshold) {
-      console.log(`Skipping frame generation - insufficient credits: ${this.credits}`);
+      // Don't spam logs; the loop will pause and resume on credits
       return;
     }
 
@@ -208,6 +222,24 @@ export class FrameSchedulerService {
     } catch (error) {
       console.error("Error generating frame:", error);
       this.emit('frame_error', { error: (error as any)?.message ?? String(error) });
+    }
+  }
+
+  /**
+   * Drain available credits by generating frames sequentially.
+   * Yields to the event loop between frames to avoid blocking.
+   */
+  private async drainCredits(): Promise<void> {
+    if (!this.running || this.draining || !this.frame_generator) return;
+    this.draining = true;
+    try {
+      while (this.running && this.credits > this.config.credit_threshold) {
+        await this.tryGenerateFrame();
+        // Yield to allow WS/event processing
+        await new Promise((r) => setTimeout(r, 0));
+      }
+    } finally {
+      this.draining = false;
     }
   }
 
@@ -317,7 +349,8 @@ export class FrameSchedulerService {
 export const defaultFrameSchedulerConfig: FrameSchedulerConfig = {
   target_fps: 15, // Conservative default
   max_credits: 15, // Will be updated based on server info
-  credit_threshold: 1 // Generate frames when we have at least 1 credit
+  credit_threshold: 1, // Generate frames when we have at least 1 credit
+  generate_on_credits: true
 };
 
 // Factory function

@@ -111,6 +111,9 @@ export class FlipDiscOrchestrator {
     console.log(`Starting animation with worker: ${workerPath}`);
 
     try {
+      // Ensure server display loop is running before sending frames
+      await this.server_communication.startDisplay();
+
       // Create worker
       this.current_worker = new Worker(workerPath);
       
@@ -198,6 +201,13 @@ export class FlipDiscOrchestrator {
 
     this.running = false;
     console.log("Animation stopped");
+
+    // Explicitly stop server display loop and clear buffer
+    try {
+      await this.server_communication.stopDisplay();
+    } catch (error) {
+      console.error("Failed to stop server display loop:", error);
+    }
   }
 
   // WebSocket handlers for Bun.serve - delegate to UI handler

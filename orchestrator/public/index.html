@@ -42,17 +42,29 @@
         </div>
     </div>
     
-    <div class="controls">
-        <h3>Animation Controls</h3>
-        <button class="button" id="start-bouncing-dot" onclick="startAnimation('bouncing-dot')">
-            Start Bouncing Dot
-        </button>
-        <button class="button danger" id="stop-animation" onclick="stopAnimation()" disabled>
-            Stop Animation
-        </button>
-        <button class="button" onclick="getStatus()">
-            Refresh Status
-        </button>
+    <div class="controls-grid">
+        <div class="controls status-card">
+            <h3>Animation Controls</h3>
+            <button class="button" id="start-bouncing-dot" onclick="startAnimation('bouncing-dot')">
+                Start Bouncing Dot
+            </button>
+            <button class="button danger" id="stop-animation" onclick="stopAnimation()" disabled>
+                Stop Animation
+            </button>
+            <button class="button" onclick="getStatus()">
+                Refresh Status
+            </button>
+            <div style="margin-top:12px;">
+                <label for="fps-input"><strong>Target FPS:</strong></label>
+                <input id="fps-input" type="number" min="1" max="60" step="1" value="30" style="width:80px;">
+                <button class="button" onclick="setFps()">Set FPS</button>
+            </div>
+        </div>
+
+        <div class="status-card">
+            <h3>Frame Preview</h3>
+            <canvas id="preview" class="preview-canvas" width="280" height="280"></canvas>
+        </div>
     </div>
     
     <div id="display-info" class="status-card" style="display: none;">
@@ -80,6 +92,8 @@
         let ws = null;
         let isConnected = false;
         let animationRunning = false;
+        let targetFps = null; // server target FPS (policy)
+        let lastEffectiveFps = null; // effective FPS from server status
         
         // UI elements
         const serverIndicator = document.getElementById('server-indicator');
@@ -92,6 +106,15 @@
         const frameCount = document.getElementById('frame-count');
         const logDiv = document.getElementById('log');
         
+        function updateFpsReadout(value) {
+            const eff = (value !== null && value !== undefined) ? value : '-';
+            if (targetFps !== null) {
+                fpsDisplay.textContent = `${eff} (target ${targetFps})`;
+            } else {
+                fpsDisplay.textContent = `${eff}`;
+            }
+        }
+
         // Connect to orchestrator WebSocket
         function connect() {
             const wsUrl = `ws://${window.location.host}/ws`;
@@ -141,11 +164,13 @@
                     break;
                     
                 case 'server_status':
-                    fpsDisplay.textContent = message.data.fps_actual.toFixed(1);
+                    lastEffectiveFps = message.data.fps_actual;
+                    updateFpsReadout(lastEffectiveFps.toFixed(1));
                     break;
                     
                 case 'frame_preview':
                     frameCount.textContent = message.data.frame_id;
+                    renderPreview(message.data);
                     break;
                     
                 case 'server_error':
@@ -176,10 +201,6 @@
             
             startButton.disabled = animationRunning;
             stopButton.disabled = !animationRunning;
-            
-            if (animationRunning) {
-                orchestratorIndicator.className = 'status-indicator status-running';
-            }
         }
         
         function updateDisplayInfo(displayInfo) {
@@ -187,6 +208,8 @@
                 `${displayInfo.canvas_width} × ${displayInfo.canvas_height}`;
             document.getElementById('panel-count').textContent = displayInfo.panel_count;
             document.getElementById('refresh-rate').textContent = displayInfo.refresh_rate;
+            targetFps = displayInfo.refresh_rate;
+            updateFpsReadout(lastEffectiveFps !== null ? lastEffectiveFps.toFixed(1) : '-');
             document.getElementById('display-info').style.display = 'block';
         }
         
@@ -204,7 +227,8 @@
             
             if (statusData.scheduler_stats) {
                 creditsCount.textContent = statusData.scheduler_stats.credits;
-                fpsDisplay.textContent = statusData.scheduler_stats.average_fps.toFixed(1);
+                lastEffectiveFps = statusData.scheduler_stats.average_fps;
+                updateFpsReadout(lastEffectiveFps.toFixed(1));
             }
         }
         
@@ -234,6 +258,9 @@
             }));
             
             addLogEntry(`Starting ${type} animation`, 'info');
+            // Optimistically enable stop for UX; status will confirm
+            animationRunning = true;
+            updateAnimationStatus();
         }
         
         function stopAnimation() {
@@ -244,6 +271,9 @@
             }));
             
             addLogEntry('Stopping animation', 'info');
+            // Optimistic UI update; status will confirm
+            animationRunning = false;
+            updateAnimationStatus();
         }
         
         function getStatus() {
@@ -254,8 +284,70 @@
             }));
         }
         
+        async function setFps() {
+            const input = document.getElementById('fps-input');
+            const fps = parseFloat(input.value || '0');
+            if (!fps || fps <= 0) {
+                addLogEntry('Invalid FPS value', 'error');
+                return;
+            }
+            try {
+                const res = await fetch('/api/server/fps', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ target_fps: fps })
+                });
+                if (res.ok) {
+                    addLogEntry(`Target FPS set to ${fps}`, 'success');
+                    targetFps = fps;
+                    document.getElementById('refresh-rate').textContent = targetFps;
+                    updateFpsReadout(lastEffectiveFps !== null ? lastEffectiveFps.toFixed(1) : `${targetFps}`);
+                } else {
+                    const data = await res.json().catch(() => ({}));
+                    addLogEntry(`Failed to set FPS: ${data.detail || res.statusText}`, 'error');
+                }
+            } catch (e) {
+                addLogEntry('Error setting FPS: ' + e, 'error');
+            }
+        }
+
+        
+        
         // Initialize
         connect();
+
+        // Basic frame preview renderer
+        function renderPreview(frame) {
+            try {
+                const c = document.getElementById('preview');
+                if (!c) return;
+                const ctx = c.getContext('2d');
+                if (!ctx || !Array.isArray(frame.data)) return;
+                const w = frame.width, h = frame.height;
+                const bytes = frame.data;
+                const stride = Math.ceil(w / 8);
+                // Resize canvas to match container width for crisp pixels
+                const desiredSize = Math.max(100, Math.floor(c.clientWidth));
+                if (desiredSize && (c.width !== desiredSize || c.height !== desiredSize)) {
+                    c.width = desiredSize;
+                    c.height = desiredSize;
+                }
+                const scale = Math.max(1, Math.floor(Math.min(c.width / w, c.height / h)));
+                ctx.clearRect(0, 0, c.width, c.height);
+                ctx.fillStyle = '#00ff66';
+                for (let y = 0; y < h; y++) {
+                    for (let x = 0; x < w; x++) {
+                        const byteIdx = y * stride + Math.floor(x / 8);
+                        const bitPos = 7 - (x % 8);
+                        if (((bytes[byteIdx] >> bitPos) & 1) === 1) {
+                            ctx.fillRect(x * scale, y * scale, scale, scale);
+                        }
+                    }
+                }
+            } catch (e) {
+                // ignore preview errors
+            }
+        }
     </script>
 </body>
 </html>

@@ -49,8 +49,9 @@ def make_binary_frame(width: int, height: int, seq: int = 1) -> bytes:
     frame.extend(b"FDIS")
     # Sequence (u2le)
     frame.extend(int(seq).to_bytes(2, "little"))
-    # Timestamp (u4le) - arbitrary fixed timestamp
-    frame.extend(int(1_700_000_000).to_bytes(4, "little"))
+    # PTS ns (u8le)
+    pts_ns = int(1_700_000_000) * 1_000_000_000
+    frame.extend(pts_ns.to_bytes(8, "little"))
     # Width/Height (u2le)
     frame.extend(int(width).to_bytes(2, "little"))
     frame.extend(int(height).to_bytes(2, "little"))
@@ -87,4 +88,3 @@ def test_websocket_smoke_success():
                 assert updated_credits <= initial_credits
     finally:
         cfg_path.unlink(missing_ok=True)
-

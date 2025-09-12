@@ -110,15 +110,17 @@ export class UIWebSocketHandler {
   }
 
   broadcastFramePreview(frame: Frame): void {
-    // Send frame data to UI clients for live preview
-    // Note: Not sending actual pixel data to reduce bandwidth
+    // Send frame metadata + packed bitmap for a small live preview
+    // Data is packed row-stride (ceil(width/8) bytes per row), MSB-first per byte
+    const payload = Array.from(frame.data);
     this.broadcastToAll({
       type: 'frame_preview',
       data: {
         frame_id: frame.frame_id,
         width: frame.width,
         height: frame.height,
-        timestamp: frame.timestamp
+        timestamp: frame.timestamp,
+        data: payload
       }
     });
   }

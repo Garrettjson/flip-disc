@@ -10,7 +10,6 @@ export interface FrameData {
   height: number;
   bitmap: Uint8Array;
   sequenceNumber?: number;
-  timestamp?: number;
 }
 
 export class FrameSerializer {
@@ -24,8 +23,7 @@ export class FrameSerializer {
       width,
       height,
       bitmap,
-      sequenceNumber = this.getNextSequence(),
-      timestamp = Math.floor(Date.now() / 1000) // Unix timestamp
+      sequenceNumber = this.getNextSequence()
     } = frameData;
 
     // Validate input
@@ -37,8 +35,8 @@ export class FrameSerializer {
       throw new Error(`Bitmap size ${bitmap.length} doesn't match expected ${expectedPayloadLen} for ${width}x${height}`);
     }
 
-    // Create binary frame according to protocol
-    const headerSize = 16; // Fixed header size
+    // Create binary frame according to protocol (20-byte header)
+    const headerSize = 20; // magic(4) + seq(2) + pts_ns(8) + w(2) + h(2) + len(2)
     const totalSize = headerSize + bitmap.length;
     const buffer = new ArrayBuffer(totalSize);
     const view = new DataView(buffer);
@@ -54,9 +52,10 @@ export class FrameSerializer {
     view.setUint16(offset, sequenceNumber & 0xFFFF, true);
     offset += 2;
     
-    // Timestamp (4 bytes)
-    view.setUint32(offset, timestamp, true);
-    offset += 4;
+    // PTS in nanoseconds (use wall-clock ms to ns; replace with monotonic sync later)
+    const ptsNs = BigInt(Date.now()) * 1_000_000n;
+    view.setBigUint64(offset, ptsNs, true);
+    offset += 8;
     
     // Width (2 bytes)
     view.setUint16(offset, width, true);

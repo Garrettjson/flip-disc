@@ -131,6 +131,32 @@ class ServerApp:
                         await self.display_controller.send_canvas_frame(frame.data)
                     else:
                         logger.error("Display controller is not initialized")
+                    # Broadcast updated credits and status to WS clients after consuming a frame
+                    if self.frame_buffer is not None:
+                        try:
+                            from .api import connection_manager
+
+                            credits = await self.frame_buffer.get_credits()
+                            status = self.frame_buffer.get_buffer_status()
+                            await connection_manager.broadcast_message(
+                                {
+                                    "type": "credits",
+                                    "credits": credits,
+                                    "buffer_level": status.get("buffer_utilization", 0.0),
+                                    "timestamp": asyncio.get_event_loop().time(),
+                                }
+                            )
+                            await connection_manager.broadcast_message(
+                                {
+                                    "type": "status",
+                                    "fps_actual": status.get("fps_actual", 0.0),
+                                    "buffer_level": status.get("buffer_utilization", 0.0),
+                                    "frames_displayed": status.get("stats", {}).get("frames_displayed", 0),
+                                    "timestamp": asyncio.get_event_loop().time(),
+                                }
+                            )
+                        except Exception as be:
+                            logger.debug(f"Broadcast credits/status failed: {be}")
                 except Exception as e:
                     logger.error(f"Error in display callback: {e}")
 
@@ -167,8 +193,48 @@ class ServerApp:
                 except asyncio.CancelledError:
                     pass  # Expected when cancelling
 
+            # Clear buffer and reset credits
+            if self.frame_buffer:
+                try:
+                    cleared = await self.frame_buffer.clear_buffer()
+                    logger.info(f"Cleared {cleared} frames from buffer on stop")
+                except Exception as e:
+                    logger.error(f"Failed to clear buffer on stop: {e}")
+
             self.display_running = False
             logger.info("Display loop stopped")
+
+            # Broadcast final credits/status
+            try:
+                from .api import connection_manager
+
+                if self.frame_buffer:
+                    status = self.frame_buffer.get_buffer_status()
+                    credits = await self.frame_buffer.get_credits()
+                else:
+                    status = {"buffer_utilization": 0.0, "fps_actual": 0.0}
+                    credits = 0
+
+                await connection_manager.broadcast_message(
+                    {
+                        "type": "credits",
+                        "credits": credits,
+                        "buffer_level": status.get("buffer_utilization", 0.0),
+                        "timestamp": asyncio.get_event_loop().time(),
+                    }
+                )
+                await connection_manager.broadcast_message(
+                    {
+                        "type": "status",
+                        "fps_actual": 0.0,
+                        "buffer_level": status.get("buffer_utilization", 0.0),
+                        "frames_displayed": status.get("stats", {}).get("frames_displayed", 0),
+                        "timestamp": asyncio.get_event_loop().time(),
+                        "running": False,
+                    }
+                )
+            except Exception as e:
+                logger.debug(f"Broadcast on stop failed: {e}")
 
         except Exception as e:
             logger.error(f"Error stopping display loop: {e}")
@@ -290,6 +356,13 @@ class ServerApp:
 
                 def get_stats(self):
                     return self._server_app.get_stats()
+
+                # Pass-through controls
+                async def start_display_loop(self) -> bool:
+                    return await self._server_app.start_display_loop()
+
+                async def stop_display_loop(self) -> None:
+                    await self._server_app.stop_display_loop()
 
             return ServerComponents(self)
 

@@ -7,6 +7,7 @@
 import { getStatus } from "./status.ts";
 import { startAnimation, stopAnimation } from "./animation.ts";
 import { getWorkers } from "./workers.ts";
+import { setServerFps } from "./serverControl.ts";
 import { getDisplayInfo } from "./display.ts";
 import type { FlipDiscOrchestrator } from "@/index.ts";
 
@@ -37,6 +38,9 @@ export const routes: Routes = {
 
   "/api/display": {
     GET: getDisplayInfo
+  },
+  "/api/server/fps": {
+    POST: setServerFps
   }
 };
 

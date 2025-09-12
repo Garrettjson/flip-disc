@@ -69,6 +69,10 @@ class ServerStats(BaseModel):
     display: Dict[str, Any]
 
 
+class FpsRequest(BaseModel):
+    target_fps: float
+
+
 # REST API Endpoints
 
 
@@ -124,7 +128,7 @@ async def get_server_status(server=Depends(get_server)):
         ),
         buffer_level=buffer_status.get("buffer_utilization", 0.0),
         buffer_health=buffer_health.get("health", "unknown"),
-        fps=buffer_status.get("target_fps", 0.0),
+        fps=buffer_status.get("fps_actual", buffer_status.get("target_fps", 0.0)),
     )
 
 
@@ -217,6 +221,31 @@ async def send_test_pattern(pattern: str, server=Depends(get_server)):
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@router.post("/control/fps", response_model=ControlResponse)
+async def set_target_fps(req: FpsRequest, server=Depends(get_server)):
+    """Update server target FPS (pacing)."""
+    if not server.frame_buffer:
+        raise HTTPException(status_code=500, detail="Frame buffer not initialized")
+    try:
+        server.frame_buffer.update_target_fps(req.target_fps)
+        return ControlResponse(success=True, message=f"Target FPS set to {req.target_fps}")
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.get("/metrics")
+async def get_metrics(server=Depends(get_server)):
+    """Lightweight metrics for monitoring."""
+    if not server.frame_buffer:
+        raise HTTPException(status_code=500, detail="Frame buffer not initialized")
+    status = server.frame_buffer.get_buffer_status()
+    health = server.frame_buffer.get_buffer_health()
+    return {
+        "buffer": status,
+        "health": health,
+    }
+
+
 @router.get("/credits")
 async def get_credits(server=Depends(get_server)):
     """Get current buffer credits for orchestrator."""
@@ -306,13 +335,17 @@ def parse_frame_from_binary(
             )
 
         # Create Frame object compatible with existing system
+        # Use high-resolution PTS (ns) as floating seconds for internal timestamp
+        ts = getattr(parsed_frame, "pts_ns", None)
+        timestamp = (ts / 1e9) if ts is not None else time.time()
+
         return Frame(
             frame_id=parsed_frame.seq,  # Use sequence number as frame ID
-            flags=0,  # No flags in new binary protocol - could extend later
+            flags=0,  # No flags currently
             width=parsed_frame.width,
             height=parsed_frame.height,
             data=parsed_frame.bitmap_data,
-            timestamp=parsed_frame.timestamp,
+            timestamp=timestamp,
         )
 
     except Exception as e:
