@@ -21,6 +21,14 @@ export interface FrameSchedulerConfig {
 
 export type FrameGenerator = () => Promise<Frame | null>;
 
+type SchedulerEvents = {
+  frame_ready: Frame;
+  credits_updated: { credits: number; buffer_level: number; delta: number };
+  frame_error: { error: string };
+  status_updated: { server_fps: number; buffer_level: number; frames_displayed: number };
+  stopped: ReturnType<FrameSchedulerService['getStats']>;
+};
+
 export class FrameSchedulerService {
   private config: FrameSchedulerConfig;
   private credits: number = 0;
@@ -41,8 +49,8 @@ export class FrameSchedulerService {
     fps_samples: [] as number[]
   };
 
-  // Event handlers
-  private event_handlers: Map<string, (data: any) => void> = new Map();
+  // Event handlers (multicast by event type)
+  private handlers: Map<keyof SchedulerEvents, Set<(data: any) => void>> = new Map();
 
   constructor(config: FrameSchedulerConfig) {
     this.config = config;
@@ -129,11 +137,11 @@ export class FrameSchedulerService {
     
     this.stats.last_fps_calculation = status.timestamp;
     
-    this.emit('status_updated', {
-      server_fps: status.fps_actual,
-      buffer_level: status.buffer_level,
-      frames_displayed: status.frames_displayed
-    });
+      this.emit('status_updated', {
+        server_fps: status.fps_actual,
+        buffer_level: status.buffer_level,
+        frames_displayed: status.frames_displayed
+      });
   }
 
   /**
@@ -199,7 +207,7 @@ export class FrameSchedulerService {
 
     } catch (error) {
       console.error("Error generating frame:", error);
-      this.emit('frame_error', { error: error.message });
+      this.emit('frame_error', { error: (error as any)?.message ?? String(error) });
     }
   }
 
@@ -252,24 +260,25 @@ export class FrameSchedulerService {
   /**
    * Register event handler
    */
-  on(event: string, handler: (data: any) => void): void {
-    this.event_handlers.set(event, handler);
+  on<K extends keyof SchedulerEvents>(event: K, handler: (data: SchedulerEvents[K]) => void): void {
+    const set = this.handlers.get(event) ?? new Set();
+    set.add(handler as any);
+    this.handlers.set(event, set);
   }
 
-  /**
-   * Unregister event handler
-   */
-  off(event: string): void {
-    this.event_handlers.delete(event);
+  off<K extends keyof SchedulerEvents>(event: K, handler?: (data: SchedulerEvents[K]) => void): void {
+    if (!handler) {
+      this.handlers.delete(event);
+      return;
+    }
+    this.handlers.get(event)?.delete(handler as any);
   }
 
-  /**
-   * Emit event to handlers
-   */
-  private emit(event: string, data?: any): void {
-    const handler = this.event_handlers.get(event);
-    if (handler) {
-      handler(data);
+  private emit<K extends keyof SchedulerEvents>(event: K, data: SchedulerEvents[K]): void {
+    const set = this.handlers.get(event);
+    if (!set) return;
+    for (const h of set) {
+      try { (h as any)(data); } catch (e) { console.error('Scheduler handler error:', e); }
     }
   }
 

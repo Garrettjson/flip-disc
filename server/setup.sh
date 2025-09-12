@@ -1,28 +1,25 @@
-#!/bin/bash
-
-# Simple setup script for flip disc server
-set -e
+#!/usr/bin/env bash
+set -euo pipefail
 
 echo "Setting up flip disc server..."
 
-# Check if uv is installed
-if ! command -v uv &> /dev/null; then
-    echo "Installing uv..."
-    curl -LsSf https://astral.sh/uv/install.sh | sh
-    export PATH="$HOME/.cargo/bin:$PATH"
+# Ensure uv is available
+if ! command -v uv >/dev/null 2>&1; then
+  echo "uv not found. Installing uv..."
+  curl -LsSf https://astral.sh/uv/install.sh | sh
+  export PATH="$HOME/.cargo/bin:$PATH"
 fi
 
-# Create/recreate virtual environment
-if [ -d ".venv" ]; then
-    echo "Removing existing virtual environment..."
-    rm -rf .venv
+# Create virtual environment if missing
+if [ ! -d ".venv" ]; then
+  echo "Creating virtual environment (.venv)..."
+  uv venv
+else
+  echo "Using existing virtual environment (.venv)"
 fi
 
-echo "Creating virtual environment..."
-uv venv
-
-echo "Installing dependencies..."
+echo "Installing/updating dependencies..."
 uv pip install -e '.[dev]'
 
 echo "Setup complete!"
-echo "To activate: uv venv"
+echo "Run: uv run python -m src.main"

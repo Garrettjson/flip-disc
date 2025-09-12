@@ -27,3 +27,8 @@ dev = [
 
 [tool.hatch.build.targets.wheel]
 packages = ["src", "gen"]
+
+[tool.ruff]
+extend-exclude = [
+    "gen/**",  # generated code (Kaitai)
+]

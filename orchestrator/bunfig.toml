@@ -1,0 +1,9 @@
+[test]
+# Per-test timeout (keeps hung tests from stalling CI)
+timeout = "10s"
+# Cap concurrency to reduce flakiness on busy machines
+concurrency = 4
+
+[install]
+# Ensure installs match the checked-in lockfile (enable true in CI)
+frozenLockfile = false

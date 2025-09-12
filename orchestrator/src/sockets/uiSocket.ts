@@ -4,7 +4,8 @@
  */
 
 import type { ServerWebSocket } from "bun";
-import type { WebSocketData, Frame } from "@/types/index.ts";
+import { z } from "zod";
+import type { WebSocketData, Frame, UIClientMessage } from "@/types/index.ts";
 import type { FlipDiscOrchestrator } from "@/index.ts";
 
 export class UIWebSocketHandler {
@@ -26,32 +27,36 @@ export class UIWebSocketHandler {
 
   handleMessage = (ws: ServerWebSocket<WebSocketData>, message: string | Buffer, orchestrator: FlipDiscOrchestrator): void => {
     try {
-      const data = JSON.parse(message.toString());
-      
-      switch (data.type) {
-        case 'start_animation':
-          orchestrator.startAnimation(data.worker_path).catch(console.error);
-          break;
-          
-        case 'stop_animation':
-          orchestrator.stopAnimation().catch(console.error);
-          break;
-          
-        case 'get_status':
-          ws.send(JSON.stringify({
-            type: 'status',
-            data: {
-              running: orchestrator.isRunning(),
-              display_info: orchestrator.getDisplayInfo(),
-              scheduler_stats: orchestrator.frame_scheduler.getStats(),
-              server_connected: orchestrator.server_communication.isConnected()
-            }
-          }));
-          break;
-          
-        default:
-          console.log('Unknown UI message type:', data.type);
+      const raw = JSON.parse(message.toString());
+
+      // Zod schemas for UI messages
+      const StartSchema = z.object({ type: z.literal('start_animation'), worker_path: z.string().min(1) });
+      const StopSchema = z.object({ type: z.literal('stop_animation') });
+      const GetSchema = z.object({ type: z.literal('get_status') });
+
+      if (StartSchema.safeParse(raw).success) {
+        const data: UIClientMessage = raw;
+        orchestrator.startAnimation((data as any).worker_path).catch(console.error);
+        return;
       }
+      if (StopSchema.safeParse(raw).success) {
+        orchestrator.stopAnimation().catch(console.error);
+        return;
+      }
+      if (GetSchema.safeParse(raw).success) {
+        ws.send(JSON.stringify({
+          type: 'status',
+          data: {
+            running: orchestrator.isRunning(),
+            display_info: orchestrator.getDisplayInfo(),
+            scheduler_stats: orchestrator.frame_scheduler.getStats(),
+            server_connected: orchestrator.server_communication.isConnected()
+          }
+        }));
+        return;
+      }
+
+      ws.send(JSON.stringify({ type: 'error', message: 'Invalid UI message' }));
     } catch (error) {
       console.error('Error handling UI WebSocket message:', error);
     }

@@ -16,7 +16,6 @@ from .config import DisplayConfig, PanelConfig
 from .frame_mapper import FrameMapper
 from .protocol_encoder import ProtocolEncoder
 from .serial_port import SerialPort, create_serial_port
-from .protocol_config import FLUSH_COMMAND
 
 
 logger = logging.getLogger(__name__)
@@ -257,20 +256,22 @@ class DisplayController:
         Args:
             panel_arrays: Dict mapping panel address to numpy array data
         """
-        # Convert numpy arrays to protocol payloads
+        # Convert numpy arrays to protocol payloads (column-wise strips, LSB=top)
         panel_payloads = {}
         for address, array in panel_arrays.items():
-            # Pack numpy array to bytes (at transmission boundary)
-            panel_payloads[address] = np.packbits(
-                array, axis=1, bitorder="big"
-            ).tobytes()
+            packed_cols = np.packbits(array.astype(np.uint8), axis=0, bitorder="little")
+            panel_payloads[address] = packed_cols[0].tobytes()
 
         # Generate protocol frames
-        frames = list(self.protocol_encoder.encode_many(panel_payloads))
+        frames = list(
+            self.protocol_encoder.encode_many(
+                panel_payloads, self.config.protocol_config
+            )
+        )
 
         # Policy decision: flush for multi-panel displays
         if self._should_flush_after_panels(len(panel_arrays)):
-            flush_frame = self.protocol_encoder.encode_flush(bytes([FLUSH_COMMAND]))
+            flush_frame = self.protocol_encoder.encode_flush()
             frames.append(flush_frame)
 
         # Send via I/O boundary

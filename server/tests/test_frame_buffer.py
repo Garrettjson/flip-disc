@@ -4,11 +4,10 @@ import pytest
 import asyncio
 import time
 
-from src.config import create_default_single_panel_config
+from src.config import DisplayConfig, PanelConfig, SerialConfig, Point, Size
 from src.frame_buffer import (
     AsyncFrameBuffer,
     Frame,
-    create_frame_from_binary,
     create_frame_for_canvas,
     validate_frame_for_display,
 )
@@ -16,8 +15,18 @@ from src.frame_buffer import (
 
 @pytest.fixture
 def display_config():
-    """Create default display configuration for tests."""
-    return create_default_single_panel_config()
+    """Create single-panel (28x7) display configuration for tests."""
+    panel = PanelConfig("main", Point(0, 0), Size(28, 7), address=0)
+    cfg = DisplayConfig(
+        canvas_size=Size(28, 7),
+        panels=[panel],
+        serial=SerialConfig(mock=True),
+        refresh_rate=30.0,
+        buffer_duration=0.5,
+    )
+    cfg.validate_within_canvas()
+    _ = cfg.protocol_config
+    return cfg
 
 
 @pytest.fixture
@@ -233,9 +242,8 @@ def test_validate_frame_for_display(display_config):
     PANEL_W = 28
     PANEL_H = 7
     stride = (PANEL_W + 7) // 8
-    valid_frame = Frame(
-        1, 0, PANEL_W, PANEL_H, b"\x00" * (stride * PANEL_H), time.time()
-    )
+    canvas_data = b"\x00" * (stride * PANEL_H)
+    valid_frame = create_frame_for_canvas(1, canvas_data, display_config)
     assert validate_frame_for_display(valid_frame, display_config) is True
 
     # Invalid dimensions
@@ -246,44 +254,7 @@ def test_validate_frame_for_display(display_config):
     bad_data_frame = Frame(3, 0, 28, 7, b"\x00" * 10, time.time())  # Too small
     assert validate_frame_for_display(bad_data_frame, display_config) is False
 
-
-def test_create_frame_from_binary():
-    """Test parsing binary frame data."""
-    # Create binary frame: [4B frame_id][1B flags][2B width][2B height][data]
-    frame_id = 42
-    flags = 1  # Invert flag set
-    width = 28
-    height = 7
-    # Use per-row stride size for width=28
-    stride = (width + 7) // 8
-    data = b"\xaa" * (stride * height)  # Checkerboard-ish pattern
-
-    # Pack as big-endian
-    binary_data = (
-        frame_id.to_bytes(4, "big")
-        + flags.to_bytes(1, "big")
-        + width.to_bytes(2, "big")
-        + height.to_bytes(2, "big")
-        + data
-    )
-
-    frame = create_frame_from_binary(binary_data)
-
-    assert frame.frame_id == frame_id
-    assert frame.flags == flags
-    assert frame.width == width
-    assert frame.height == height
-    assert frame.data == data
-
-    # Test with dimension validation
-    frame_validated = create_frame_from_binary(
-        binary_data, expected_width=28, expected_height=7
-    )
-    assert frame_validated.frame_id == frame_id
-
-    # Test dimension mismatch
-    with pytest.raises(ValueError, match="doesn't match expected"):
-        create_frame_from_binary(binary_data, expected_width=20, expected_height=5)
+    # Binary parsing moved to Kaitai-based tests; omitted here.
 
 
 if __name__ == "__main__":

@@ -17,6 +17,7 @@ from fastapi import (
     Depends,
 )
 from pydantic import BaseModel
+from typing import Any, Dict
 from .frame_buffer import Frame, validate_frame_for_display
 from gen.py.flipdisc_frame import FlipdiscFrame
 
@@ -61,6 +62,13 @@ class ControlResponse(BaseModel):
     message: str
 
 
+class ServerStats(BaseModel):
+    running: bool
+    buffer: Dict[str, Any]
+    health: Dict[str, Any]
+    display: Dict[str, Any]
+
+
 # REST API Endpoints
 
 
@@ -78,7 +86,7 @@ async def get_display_info(server=Depends(get_server)):
         raise HTTPException(status_code=500, detail="Display configuration not loaded")
     config = server.display_config
     panels = []
-    for panel in config.enabled_panels:
+    for panel in config.panels:
         panels.append(
             {
                 "id": panel.id,
@@ -91,7 +99,7 @@ async def get_display_info(server=Depends(get_server)):
     return DisplayInfo(
         canvas_width=config.canvas_size.w,
         canvas_height=config.canvas_size.h,
-        panel_count=config.panel_count,
+        panel_count=len(config.panels),
         refresh_rate=config.refresh_rate,
         panels=panels,
     )
@@ -110,8 +118,8 @@ async def get_server_status(server=Depends(get_server)):
     return ServerStatus(
         running=server.display_running,
         connected=(
-            server.serial_controller.is_connected()
-            if server.serial_controller
+            server.display_controller.is_connected()
+            if server.display_controller
             else False
         ),
         buffer_level=buffer_status.get("buffer_utilization", 0.0),
@@ -120,10 +128,9 @@ async def get_server_status(server=Depends(get_server)):
     )
 
 
-@router.get("/stats")
+@router.get("/stats", response_model=ServerStats)
 async def get_server_stats(server=Depends(get_server)):
     """Get detailed server statistics."""
-    # ...existing code...
     return server.get_stats()
 
 
@@ -152,7 +159,6 @@ async def get_config(server=Depends(get_server)):
                 "position": {"x": panel.origin.x, "y": panel.origin.y},
                 "size": {"width": panel.size.w, "height": panel.size.h},
                 "orientation": panel.orientation,
-                "enabled": panel.enabled,
             }
             for panel in config.panels
         ],
@@ -185,11 +191,13 @@ async def send_test_pattern(pattern: str, server=Depends(get_server)):
     """Send a test pattern to the display."""
     # ...existing code...
 
-    if not server.serial_controller:
-        raise HTTPException(status_code=500, detail="Serial controller not initialized")
+    if not server.display_controller:
+        raise HTTPException(
+            status_code=500, detail="Display controller not initialized"
+        )
 
-    if not server.serial_controller.is_connected():
-        raise HTTPException(status_code=503, detail="Serial controller not connected")
+    if not server.display_controller.is_connected():
+        raise HTTPException(status_code=503, detail="Display controller not connected")
 
     valid_patterns = ["checkerboard", "border", "solid", "clear"]
     if pattern not in valid_patterns:
@@ -199,7 +207,7 @@ async def send_test_pattern(pattern: str, server=Depends(get_server)):
         )
 
     try:
-        await server.serial_controller.send_test_pattern(pattern)
+        await server.display_controller.send_test_pattern(pattern)
         return ControlResponse(
             success=True, message=f"Test pattern '{pattern}' sent successfully"
         )
@@ -367,6 +375,19 @@ async def websocket_endpoint(websocket: WebSocket):
                     )
                     continue
 
+                # Enforce credit-based flow control
+                has_credit = await server.frame_buffer.consume_credit()
+                if not has_credit:
+                    await connection_manager.send_message(
+                        websocket,
+                        {
+                            "type": "error",
+                            "message": f"No credits available; frame {frame.frame_id} not accepted",
+                            "credits": 0,
+                        },
+                    )
+                    continue
+
                 # Add frame to buffer
                 success = await server.frame_buffer.add_frame(frame)
 
@@ -392,12 +413,14 @@ async def websocket_endpoint(websocket: WebSocket):
 
                 else:
                     # Buffer full
+                    # Restore the consumed credit since frame was not enqueued
+                    await server.frame_buffer.add_credits(1)
                     await connection_manager.send_message(
                         websocket,
                         {
                             "type": "error",
                             "message": f"Buffer full, frame {frame.frame_id} dropped",
-                            "credits": 0,
+                            "credits": await server.frame_buffer.get_credits(),
                         },
                     )
 

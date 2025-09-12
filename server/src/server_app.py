@@ -54,6 +54,7 @@ class ServerApp:
 
         # FastAPI app
         self.app: Optional[FastAPI] = None
+        self._started: bool = False
 
         logger.info(f"ServerApp initialized with config: {self.config_path}")
 
@@ -81,6 +82,7 @@ class ServerApp:
             await self._create_fastapi_app()
 
             logger.info("Server application startup completed successfully")
+            self._started = True
 
         except Exception as e:
             logger.error(f"Server application startup failed: {e}")
@@ -104,6 +106,7 @@ class ServerApp:
                 await self.frame_buffer.clear_buffer()
 
             logger.info("Server application shutdown completed")
+            self._started = False
 
         except Exception as e:
             logger.error(f"Error during shutdown: {e}")
@@ -234,9 +237,15 @@ class ServerApp:
         # Create lifespan context manager
         @asynccontextmanager
         async def lifespan(app: FastAPI):
-            # Startup is already handled by startup() method
-            yield
-            # Shutdown is handled by shutdown() method
+            started_here = False
+            if not self._started:
+                await self.startup()
+                started_here = True
+            try:
+                yield
+            finally:
+                if started_here and self._started:
+                    await self.shutdown()
 
         # Create FastAPI app
         self.app = FastAPI(
@@ -249,14 +258,14 @@ class ServerApp:
         # Add CORS middleware
         self.app.add_middleware(
             CORSMiddleware,
-            allow_origins=["*"],
+            allow_origins=self._allowed_origins(),
             allow_credentials=True,
             allow_methods=["*"],
             allow_headers=["*"],
         )
 
         # Import and include API routes with dependency injection
-        from .api import router, get_server
+        from .api import router, get_server, websocket_endpoint
 
         # Override the get_server dependency to return our components
         def get_server_override():
@@ -270,19 +279,53 @@ class ServerApp:
             # Create a server-like object for compatibility
             class ServerComponents:
                 def __init__(self, server_app):
+                    self._server_app = server_app
                     self.display_config = server_app.display_config
                     self.frame_buffer = server_app.frame_buffer
                     self.serial_controller = (
                         server_app.display_controller
                     )  # Backward compatibility
                     self.display_controller = server_app.display_controller
+                    self.display_running = server_app.display_running
+
+                def get_stats(self):
+                    return self._server_app.get_stats()
 
             return ServerComponents(self)
 
         # Override the dependency
         self.app.dependency_overrides[get_server] = get_server_override
 
-        # Include API routes
-        self.app.include_router(router)
+        # Attach server instance for WebSocket access and include routes
+        self.app.state.server = self
+        self.app.include_router(router, prefix="/api")
+        self.app.add_api_websocket_route("/ws/frames", websocket_endpoint)
 
         logger.debug("Created FastAPI application with dependency injection")
+
+    def _allowed_origins(self) -> list[str]:
+        import os
+        raw = os.getenv("ALLOWED_ORIGINS", "*")
+        raw = raw.strip()
+        if raw == "*" or raw == "":
+            return ["*"]
+        return [o.strip() for o in raw.split(",") if o.strip()]
+
+    def get_stats(self) -> dict:
+        if (
+            not self.display_controller
+            or not self.frame_buffer
+            or not self.display_config
+        ):
+            return {"running": False, "message": "server not initialized"}
+
+        status = self.frame_buffer.get_buffer_status()
+        health = self.frame_buffer.get_buffer_health()
+        display = self.display_controller.get_display_stats()
+
+        return {
+            "running": self.display_running,
+            "buffer": status,
+            "health": health,
+            "display": display,
+        }

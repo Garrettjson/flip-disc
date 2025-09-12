@@ -30,7 +30,7 @@ def update_panels(
 
     Returns:
         Dict[int, np.ndarray]: mapping `panel.address -> numpy boolean array`
-        ready for transmission by the serial writer.
+        ready for protocol encoding and serial transmission.
     """
     return _frame_mapper.map_canvas_to_panels(
         canvas_bits, canvas_w, canvas_h, cfg.panels

@@ -2,8 +2,7 @@
 """
 Flip Disc Server - Main Application Entry Point
 
-Provides backward compatibility wrapper around the new ServerApp architecture.
-For new code, use ServerApp directly.
+Application factory to build and run the FastAPI app backed by ServerApp.
 """
 
 import asyncio
@@ -26,86 +25,23 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 
-class FlipDiscServer:
-    """
-    DEPRECATED: Backward compatibility wrapper around ServerApp.
-
-    Use ServerApp directly for new code.
-    """
-
-    def __init__(self, config_path: Optional[Path] = None):
-        """Initialize FlipDiscServer (delegates to ServerApp)."""
-        self._server_app = ServerApp(config_path)
-
-        # Backward compatibility properties
-        self.config_path = config_path or Path("config.toml")
-
-    async def startup(self) -> None:
-        """Initialize all server components."""
-        await self._server_app.startup()
-
-        # Set backward compatibility properties
-        self.display_config = self._server_app.display_config
-        self.frame_buffer = self._server_app.frame_buffer
-        self.serial_controller = self._server_app.display_controller
-
-    async def shutdown(self) -> None:
-        """Cleanup all server components."""
-        await self._server_app.shutdown()
-
-    async def start_display_loop(self) -> bool:
-        """Start the main display loop."""
-        return await self._server_app.start_display_loop()
-
-    async def stop_display_loop(self) -> None:
-        """Stop the display loop."""
-        await self._server_app.stop_display_loop()
-
-    @property
-    def display_running(self) -> bool:
-        """Check if display loop is running."""
-        return self._server_app.display_running
-
-    def get_fastapi_app(self) -> FastAPI:
-        """Get the FastAPI application instance."""
-        return self._server_app.get_fastapi_app()
-
-
-# Global server instance for FastAPI lifespan
 server_instance: Optional[ServerApp] = None
 
 
 @asynccontextmanager
 async def lifespan(_: FastAPI):
-    """FastAPI lifespan context manager."""
-    global server_instance
-    try:
-        logger.info("Application starting...")
-        server_instance = ServerApp()
-        await server_instance.startup()
-        yield
-    finally:
-        logger.info("Application shutting down...")
-        if server_instance:
-            await server_instance.shutdown()
+    """FastAPI lifespan context manager (unused here; app defines its own)."""
+    yield
 
 
 def create_app(config_path: Optional[Path] = None) -> FastAPI:
-    """Create FastAPI application with proper configuration."""
+    """Uvicorn factory: build app; ServerApp handles startup via lifespan."""
     global server_instance
-
-    # Create server app
     server_instance = ServerApp(config_path)
-
-    # Create FastAPI app with lifespan
-    app = FastAPI(
-        title="Flip Disc Display Server",
-        description="REST and WebSocket API for flip disc display control",
-        version="2.0.0",
-        lifespan=lifespan,
-    )
-
-    return app
+    # Create the FastAPI app without performing startup here
+    # (ServerApp's lifespan will call startup/shutdown).
+    asyncio.run(server_instance._create_fastapi_app())
+    return server_instance.get_fastapi_app()
 
 
 def get_server() -> ServerApp:

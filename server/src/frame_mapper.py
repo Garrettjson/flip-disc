@@ -47,7 +47,7 @@ class FrameMapper:
 
         Returns:
             Dict[int, np.ndarray]: mapping `panel.address -> numpy boolean array`
-            ready for transmission by the serial writer.
+            ready for protocol encoding and serial transmission.
         """
         canvas = self._unpack_canvas_to_bool(canvas_bits, canvas_w, canvas_h)
 
@@ -166,9 +166,9 @@ class FrameMapper:
             return sub
         elif orientation == "rot180":
             return np.flipud(np.fliplr(sub))
-        elif orientation in ("rot90", "cw", "rot90cw"):
+        elif orientation == "rot90":
             return np.rot90(sub, k=3)  # 90° clockwise
-        elif orientation in ("rot270", "ccw", "rot90ccw"):
+        elif orientation == "rot270":
             return np.rot90(sub, k=1)  # 90° counter-clockwise
         else:
             raise ValueError(

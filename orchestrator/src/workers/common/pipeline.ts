@@ -30,39 +30,29 @@ let config_params: Record<string, unknown> = {};
 export function packRows(rows: Rows): Uint8Array {
   const height = rows.length;
   const width = rows[0]?.length || 0;
-  
+
   if (height === 0 || width === 0) {
     return new Uint8Array(0);
   }
 
-  // Calculate total pixels and bytes needed
-  const totalPixels = width * height;
-  const totalBytes = Math.ceil(totalPixels / 8);
-  
-  // Create flat bitmap array
-  const bitmap: boolean[] = [];
+  // Per-row stride: ceil(width/8) bytes per row
+  const stride = Math.ceil(width / 8);
+  const packed = new Uint8Array(stride * height);
+
+  // Pack each row independently (MSB-first within each byte)
   for (let y = 0; y < height; y++) {
     for (let x = 0; x < width; x++) {
-      bitmap.push(rows[y][x] > 0);
-    }
-  }
-
-  // Pack bitmap into bytes (8 pixels per byte, MSB first)
-  const packedData = new Uint8Array(totalBytes);
-  
-  for (let i = 0; i < totalPixels; i += 8) {
-    let byte = 0;
-    
-    for (let bit = 0; bit < 8; bit++) {
-      if (i + bit < totalPixels && bitmap[i + bit]) {
-        byte |= (1 << (7 - bit)); // MSB first
+      const bitIndex = x % 8; // position within byte (0..7)
+      const byteIndex = Math.floor(x / 8); // which byte in the row
+      const value = rows[y][x] > 0;
+      if (value) {
+        // MSB-first: bit position 7..0 as x increases
+        packed[y * stride + byteIndex] |= 1 << (7 - bitIndex);
       }
     }
-    
-    packedData[Math.floor(i / 8)] = byte;
   }
 
-  return packedData;
+  return packed;
 }
 
 /**

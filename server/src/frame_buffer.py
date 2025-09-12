@@ -58,7 +58,7 @@ class AsyncFrameBuffer:
         self._credits_lock = asyncio.Lock()
 
         # Display timing
-        self._last_display_time = 0.0
+        self._last_display_time = 0.0  # monotonic seconds
         self._current_frame: Optional[Frame] = None
         self._display_running = False
 
@@ -192,7 +192,7 @@ class AsyncFrameBuffer:
         Returns:
             Optional[Frame]: Frame to display, or current frame if no new frame ready
         """
-        current_time = time.time()
+        current_time = time.monotonic()
 
         # Check if it's time for the next frame
         if current_time - self._last_display_time >= self.frame_interval:
@@ -383,7 +383,7 @@ def validate_frame_for_display(frame: Frame, display_config: DisplayConfig) -> b
         )
         return False
 
-    expected_bytes = expected_h * (expected_w + 7) // 8
+    expected_bytes = expected_h * ((expected_w + 7) // 8)
     if len(frame.data) != expected_bytes:
         logger.warning(
             f"Frame {frame.frame_id} data size {len(frame.data)} doesn't match expected {expected_bytes}"

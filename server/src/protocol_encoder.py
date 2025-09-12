@@ -9,6 +9,7 @@ Frame format: [0x80, address, len_hi, len_lo, <payload bytes...>, 0x8F]
 """
 
 from typing import Dict, Iterable
+from .protocol_config import ProtocolConfig, FRAME_START, FRAME_END, FLUSH_COMMAND
 
 
 class ProtocolEncoder:
@@ -20,59 +21,53 @@ class ProtocolEncoder:
     """
 
     # Protocol constants
-    HEADER = 0x80
-    EOT = 0x8F
+    HEADER = FRAME_START
+    EOT = FRAME_END
 
-    def encode_panel_frame(self, address: int, payload: bytes) -> bytes:
+    def encode_panel_frame(
+        self, address: int, payload: bytes, protocol: ProtocolConfig
+    ) -> bytes:
         """
         Encode a single panel frame with protocol headers.
 
-        Frame format: [0x80, address, len_hi, len_lo, <payload bytes...>, 0x8F]
+        Frame format (manufacturer spec):
+        [0x80, command, address, <payload bytes...>, 0x8F]
 
         Args:
             address: Panel RS-485 address (0-255)
             payload: Panel data bytes
+            protocol: Protocol configuration (provides command byte)
 
         Returns:
             bytes: Complete protocol frame ready for transmission
         """
-        payload_length = len(payload)
         return (
-            bytes(
-                [
-                    self.HEADER,
-                    address & 0xFF,
-                    (payload_length >> 8) & 0xFF,  # Length high byte
-                    payload_length & 0xFF,  # Length low byte
-                ]
-            )
+            bytes([self.HEADER, protocol.command_byte, address & 0xFF])
             + payload
             + bytes([self.EOT])
         )
 
-    def encode_many(self, panel_payloads: Dict[int, bytes]) -> Iterable[bytes]:
+    def encode_many(
+        self, panel_payloads: Dict[int, bytes], protocol: ProtocolConfig
+    ) -> Iterable[bytes]:
         """
         Encode multiple panel frames.
 
         Args:
             panel_payloads: Dict mapping panel address to payload bytes
+            protocol: Protocol configuration
 
         Yields:
             bytes: Protocol frames ready for transmission
         """
         for address, payload in panel_payloads.items():
-            yield self.encode_panel_frame(address, payload)
+            yield self.encode_panel_frame(address, payload, protocol)
 
-    def encode_flush(self, flush_command: bytes) -> bytes:
+    def encode_flush(self) -> bytes:
         """
-        Encode a flush/refresh command frame.
-
-        Args:
-            flush_command: Raw flush command bytes
+        Encode a flush/refresh-all command frame.
 
         Returns:
-            bytes: Encoded flush frame (may be pass-through if already framed)
+            bytes: Encoded flush frame ([0x80, 0x82, 0x8F])
         """
-        # If flush command already includes framing, pass through
-        # Otherwise, could wrap it similarly to encode_panel_frame
-        return flush_command
+        return bytes([self.HEADER, FLUSH_COMMAND, self.EOT])

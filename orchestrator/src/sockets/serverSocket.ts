@@ -12,7 +12,7 @@ export class ServerWebSocketClient {
   private reconnectAttempts = 0;
   private maxReconnectAttempts = 5;
   private reconnectDelay = 1000;
-  private messageHandlers: Map<string, (message: ServerMessage) => void> = new Map();
+  private messageHandlers: Map<string, Set<(message: ServerMessage) => void>> = new Map();
 
   constructor(config: ServerConfig) {
     this.config = config;
@@ -63,9 +63,11 @@ export class ServerWebSocketClient {
     try {
       const message: ServerMessage = JSON.parse(event.data);
       
-      const handler = this.messageHandlers.get(message.type);
-      if (handler) {
-        handler(message);
+      const handlers = this.messageHandlers.get(message.type);
+      if (handlers && handlers.size) {
+        for (const h of handlers) {
+          try { h(message); } catch (e) { console.error('Server WS handler error:', e); }
+        }
       } else {
         console.log(`Unhandled server message type: ${message.type}`);
       }
@@ -90,11 +92,17 @@ export class ServerWebSocketClient {
   }
 
   onMessage(type: string, handler: (message: ServerMessage) => void): void {
-    this.messageHandlers.set(type, handler);
+    const set = this.messageHandlers.get(type) ?? new Set();
+    set.add(handler);
+    this.messageHandlers.set(type, set);
   }
 
-  offMessage(type: string): void {
-    this.messageHandlers.delete(type);
+  offMessage(type: string, handler?: (message: ServerMessage) => void): void {
+    if (!handler) {
+      this.messageHandlers.delete(type);
+      return;
+    }
+    this.messageHandlers.get(type)?.delete(handler);
   }
 
   async sendFrame(frame: Frame): Promise<void> {
@@ -109,7 +117,8 @@ export class ServerWebSocketClient {
         height: frame.height,
         bitmap: frame.data,
         sequenceNumber: frame.frame_id,
-        timestamp: Math.floor(frame.timestamp)
+        // Use seconds since epoch to match protocol convention
+        timestamp: Math.floor(Date.now() / 1000)
       };
 
       const binaryFrame = FrameSerializer.serialize(frameData);

@@ -131,15 +131,17 @@ self.onmessage = (event: MessageEvent<WorkerMessage>) => {
 
 ### Testing
 ```bash
-# Start server first
-cd ../server
-uv venv
-python -m src.main
+# Unit tests (Bun)
+bun test
 
-# Then start orchestrator
-cd ../orchestrator  
-bun run dev
+# Lint and format (Biome)
+bun run lint
+bun run format
 ```
+
+Notes
+- Worker pipeline packs rows per-row (stride = ceil(width/8)), MSB-first, matching the server’s expected bitmap format.
+- To run a full pipeline smoke, start the server (see server/README.md Testing) and then `bun run dev` here to connect and stream frames.
 
 ## Performance
 

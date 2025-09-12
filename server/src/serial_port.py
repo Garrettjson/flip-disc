@@ -12,7 +12,6 @@ import asyncio
 import logging
 from abc import ABC, abstractmethod
 from typing import Iterable, Optional
-
 from serial import SerialException
 from aioserial import AioSerial
 

@@ -82,8 +82,8 @@ export class ServerCommunicationService {
     this.serverSocket.onMessage(type, handler);
   }
 
-  offMessage(type: string): void {
-    this.serverSocket.offMessage(type);
+  offMessage(type: string, handler?: (message: ServerMessage) => void): void {
+    this.serverSocket.offMessage(type, handler);
   }
 
   async sendFrame(frame: Frame): Promise<void> {

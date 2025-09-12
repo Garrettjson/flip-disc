@@ -6,13 +6,17 @@ Python server for managing flip disc display panels via RS-485 communication. Ha
 
 ### Setup
 ```bash
+# Recommended: one-liner bootstrapping
 ./setup.sh
-uv venv
+
+# Alternatively (manual):
+# uv venv
+# uv pip install -e '.[dev]'
 ```
 
 ### Run Server
 ```bash
-python -m src.main
+uv run python -m src.main
 ```
 
 Server runs on `http://0.0.0.0:8000`
@@ -21,7 +25,7 @@ Server runs on `http://0.0.0.0:8000`
 
 ### Run Tests
 ```bash
-pytest tests/ -v
+uv run pytest -q
 ```
 
 ## Configuration
@@ -169,7 +173,7 @@ buffer_duration = 0.5
 ### Mock vs Hardware
 Set `mock = true` in config.toml for development without hardware.
 
-Mock controller:
+Mock serial port:
 - Logs what would be sent to panels
 - Simulates realistic timing delays
 - Perfect for development and testing
@@ -184,14 +188,27 @@ curl -X POST http://localhost:8000/api/control/test/solid
 ### Testing
 ```bash
 # Run all tests
-pytest tests/ -v
+uv run pytest -q
 
-# Run specific test file
-pytest tests/test_config.py -v
+# Run a specific test file
+uv run pytest tests/test_config.py -q
+
+# WebSocket smoke test (end-to-end credits and enqueue path)
+uv run pytest tests/test_smoke_websocket.py -q
+
+# Binary protocol (Kaitai) parser tests
+uv run pytest tests/test_binary_protocol.py -q
 
 # Run with coverage
-pytest tests/ --cov=src --cov-report=html
+uv run pytest --cov=src --cov-report=term-missing
 ```
+
+#### Lint and formatting
+```bash
+uv run ruff check
+uv run ruff format
+```
+Note: generated Kaitai files under `gen/` are excluded from Ruff checks.
 
 ### Code Quality
 ```bash
@@ -208,14 +225,14 @@ mypy src/
 ## Hardware Integration
 
 ### RS-485 Protocol
-The ProtocolEncoder handles frame encoding with this format:
-- Header: `0x80` 
-- Panel address (0-255)
-- Payload length (2 bytes, big-endian)
-- Packed bitmap data (8 pixels per byte, MSB first)
-- End of transmission: `0x8F`
+Protocol frames follow the manufacturer spec:
+- Start: `0x80`
+- Command: `0x83` (instant refresh) or `0x84` (buffered)
+- Address: panel address (0–255)
+- Payload: column strips (1 byte per column), LSB = top pixel, MSB (7th) = bottom, 8th bit unused
+- End: `0x8F`
 
-Frame format: `[0x80][address][len_hi][len_lo][payload...][0x8F]`
+Frame format: `[0x80][command][address][payload...][0x8F]`
 
 ### Serial Settings
 - Default: 9600 baud, 8N1

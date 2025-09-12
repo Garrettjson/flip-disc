@@ -45,11 +45,15 @@ class PanelConfig:
 
     def __post_init__(self) -> None:
         if not (0 <= self.address <= 0xFF):
-            raise ValueError(f"Panel '{self.id}' address must be 0-255, got {self.address}")
-        
+            raise ValueError(
+                f"Panel '{self.id}' address must be 0-255, got {self.address}"
+            )
+
         orient = (self.orientation or "normal").lower()
         if orient not in {"normal", "rot90", "rot180", "rot270"}:
-            raise ValueError(f"Panel '{self.id}' has invalid orientation '{self.orientation}'")
+            raise ValueError(
+                f"Panel '{self.id}' has invalid orientation '{self.orientation}'"
+            )
 
 
 @dataclass(frozen=True)
@@ -74,10 +78,11 @@ class DisplayConfig:
     refresh_rate: float = 30.0
     buffer_duration: float = 0.5
 
-    @property 
+    @property
     def protocol_service(self):
         """Get the protocol service for this display configuration."""
         from .protocol_service import DisplayProtocolService
+
         return DisplayProtocolService(self)
 
     @property
@@ -97,6 +102,7 @@ class DisplayConfig:
 
     def validate_within_canvas(self) -> None:
         from .validation import validate_display_config
+
         validate_display_config(self)
 
 
@@ -160,23 +166,72 @@ def load_from_toml(config_path: str | Path) -> DisplayConfig:
     with p.open("rb") as f:
         data = tomllib.load(f)
 
-    canvas = data.get("canvas") or {}
-    panels = data.get("panels") or []
     serial = data.get("serial") or {}
-    runtime = data.get("runtime") or {}
 
-    cfg = DisplayConfig(
-        canvas_size=Size(int(canvas.get("w", 56)), int(canvas.get("h", 7))),
-        panels=[_load_panel(e) for e in panels],
-        serial=SerialConfig(
-            port=str(serial.get("port", "/dev/ttyUSB0")),
-            baudrate=int(serial.get("baudrate", 9600)),
-            timeout=float(serial.get("timeout", 1.0)),
-            mock=bool(serial.get("mock", True)),
-        ),
-        refresh_rate=float(runtime.get("refresh_rate", 30.0)),
-        buffer_duration=float(runtime.get("buffer_duration", 0.5)),
-    )
+    # Support both explicit [[panels]] schema and simplified [display] grid schema
+    if "canvas" in data or "panels" in data or "runtime" in data:
+        canvas = data.get("canvas") or {}
+        panels = data.get("panels") or []
+        runtime = data.get("runtime") or {}
+
+        cfg = DisplayConfig(
+            canvas_size=Size(int(canvas.get("w", 56)), int(canvas.get("h", 7))),
+            panels=[_load_panel(e) for e in panels],
+            serial=SerialConfig(
+                port=str(serial.get("port", "/dev/ttyUSB0")),
+                baudrate=int(serial.get("baudrate", 9600)),
+                timeout=float(serial.get("timeout", 1.0)),
+                mock=bool(serial.get("mock", True)),
+            ),
+            refresh_rate=float(runtime.get("refresh_rate", 30.0)),
+            buffer_duration=float(runtime.get("buffer_duration", 0.5)),
+        )
+    else:
+        # Simplified schema under [display]
+        display = data.get("display") or {}
+        panel_type = str(display.get("panel_type", "28x7")).lower()
+        columns = int(display.get("columns", 1))
+        rows = int(display.get("rows", 1))
+        refresh_rate = float(display.get("refresh_rate", 30.0))
+        buffer_duration = float(display.get("buffer_duration", 0.5))
+
+        # Determine panel dimensions
+        if panel_type not in {"7x7", "14x7", "28x7"}:
+            raise ValueError(f"Unsupported panel_type '{panel_type}' in config")
+        panel_w = int(panel_type.split("x")[0])
+        panel_h = int(panel_type.split("x")[1])
+
+        canvas_w = panel_w * columns
+        canvas_h = panel_h * rows
+
+        # Generate panels row-major with sequential addresses
+        gen_panels: list[PanelConfig] = []
+        addr = 0
+        for r in range(rows):
+            for c in range(columns):
+                gen_panels.append(
+                    PanelConfig(
+                        id=f"panel_{r}_{c}",
+                        origin=Point(c * panel_w, r * panel_h),
+                        size=Size(panel_w, panel_h),
+                        orientation="normal",
+                        address=addr,
+                    )
+                )
+                addr += 1
+
+        cfg = DisplayConfig(
+            canvas_size=Size(canvas_w, canvas_h),
+            panels=gen_panels,
+            serial=SerialConfig(
+                port=str(serial.get("port", "/dev/ttyUSB0")),
+                baudrate=int(serial.get("baudrate", 9600)),
+                timeout=float(serial.get("timeout", 1.0)),
+                mock=bool(serial.get("mock", True)),
+            ),
+            refresh_rate=refresh_rate,
+            buffer_duration=buffer_duration,
+        )
 
     # Early validations
     cfg.validate_within_canvas()
