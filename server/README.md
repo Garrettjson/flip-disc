@@ -29,29 +29,77 @@ pytest tests/ -v
 Edit `config.toml` to configure your panel layout:
 
 ```toml
-[canvas]
-width = 28
-height = 7
+[display]
+panel_type = "28x7"     # "7x7", "14x7", or "28x7"
+columns = 2             # Number of panels horizontally  
+rows = 1                # Number of panels vertically
+refresh_rate = 30.0     # Target FPS
+buffer_duration = 0.5   # Frame buffer duration in seconds
 
 [serial]
 port = "/dev/ttyUSB0"
 baudrate = 9600
-mock = true  # Set false for real hardware
-
-[[panels]]
-id = "main"
-address = 0
-# ... panel configuration
+timeout = 1.0
+mock = true             # Set false for real hardware
 ```
+
+The configuration system automatically generates panel layouts based on the display parameters. Each panel gets a unique address starting from 0.
 
 ## Architecture
 
+The server follows a clean architecture pattern with proper separation of concerns:
+
+```mermaid
+graph TD
+    subgraph "Composition Root"
+        SA[ServerApp] --> |Dependency Injection| DC
+        SA --> FB
+        SA --> FM
+        SA --> PE
+        SA --> SP
+    end
+    
+    subgraph "Policy Layer"
+        DC[DisplayController] --> |Uses| FM
+        DC --> PE
+        DC --> SP
+    end
+    
+    subgraph "Pure Logic"
+        FM[FrameMapper]
+        PE[ProtocolEncoder]
+    end
+    
+    subgraph "I/O Boundary"
+        SP[SerialPort] --> HSP[HardwareSerialPort]
+        SP --> MSP[MockSerialPort]
+    end
+    
+    subgraph "Application Layer"
+        FB[AsyncFrameBuffer]
+        API[FastAPI App]
+    end
+    
+    SA --> API
+    SA --> FB
+    DC --> |Buffered Frames| FB
+```
+
 ### Core Components
+- **ServerApp** - Composition root handling dependency injection and lifecycle
+- **DisplayController** - Policy layer making high-level decisions about refresh strategies
+- **FrameMapper** - Pure function converting canvas data to panel arrays
+- **ProtocolEncoder** - Pure function encoding data into RS-485 protocol frames
+- **SerialPort** - I/O boundary with hardware/mock implementations
+- **AsyncFrameBuffer** - Frame buffering with credit system
 - **Configuration System** - Flexible panel arrangements with orientations
-- **Frame Buffer** - Async buffer with credit system (prevents overflow)
-- **Serial Controller** - Mock/hardware writers with RS-485 protocol  
-- **Panel Mapper** - Canvas-to-panel conversion with transformations
-- **FastAPI Application** - REST + WebSocket APIs
+
+### Architecture Benefits
+- **Testability** - Pure functions (FrameMapper, ProtocolEncoder) have no I/O dependencies
+- **Flexibility** - Easy to swap hardware/mock implementations via SerialPort interface  
+- **Maintainability** - Clear separation between business logic and I/O operations
+- **Policy Isolation** - DisplayController centralizes all refresh strategy decisions
+- **Dependency Injection** - ServerApp composition root wires all components cleanly
 
 ### Credit System
 The server implements a credit-based flow control system:
@@ -83,40 +131,32 @@ Frame format: `[4B frame_id][1B flags][2B width][2B height][data]`
 
 ### Single Panel (28×7)
 ```toml
-[canvas]
-width = 28
-height = 7
-
-[[panels]]
-id = "main"
-address = 0
-[panels.origin]
-x = 0
-y = 0
-[panels.size]
-width = 28
-height = 7
+[display]
+panel_type = "28x7"
+columns = 1
+rows = 1
+refresh_rate = 30.0
+buffer_duration = 0.5
 ```
 
-### Stacked Panels (14×28)  
+### Two Panels Side-by-Side (56×7)  
 ```toml
-[canvas]
-width = 28
-height = 14
+[display]
+panel_type = "28x7"
+columns = 2
+rows = 1
+refresh_rate = 30.0
+buffer_duration = 0.5
+```
 
-[[panels]]
-id = "top"
-address = 0
-[panels.origin]
-x = 0
-y = 0
-
-[[panels]]
-id = "bottom"
-address = 1
-[panels.origin]
-x = 0
-y = 7
+### Two Panels Stacked (28×14)  
+```toml
+[display]
+panel_type = "28x7"
+columns = 1  
+rows = 2
+refresh_rate = 30.0
+buffer_duration = 0.5
 ```
 
 ### Panel Orientations
@@ -168,13 +208,14 @@ mypy src/
 ## Hardware Integration
 
 ### RS-485 Protocol
-- Header: `0x80`
-- Config byte based on data length and refresh mode
+The ProtocolEncoder handles frame encoding with this format:
+- Header: `0x80` 
 - Panel address (0-255)
+- Payload length (2 bytes, big-endian)
 - Packed bitmap data (8 pixels per byte, MSB first)
 - End of transmission: `0x8F`
 
-Message: `0x80 + cfg + addr + data + 0x8F`
+Frame format: `[0x80][address][len_hi][len_lo][payload...][0x8F]`
 
 ### Serial Settings
 - Default: 9600 baud, 8N1

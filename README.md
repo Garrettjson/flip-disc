@@ -4,10 +4,46 @@ A complete system for controlling Alpha Zeta flip disc displays with smooth anim
 
 ## Architecture
 
-- **Server (Python)** - Manages hardware communication and frame buffering
-- **Orchestrator (JS/Bun)** - Controls animations and coordinates workers  
-- **Workers** - Generate animation frames (simple patterns → p5.js)
+The system follows a clean separation of concerns with proper dependency injection:
+
+- **Server (Python)** - Hardware communication and frame buffering with clean architecture
+- **Orchestrator (JS/Bun)** - Animation control and worker coordination  
+- **Workers** - Frame generation (simple patterns → p5.js animations)
 - **Client** - Web UI for control and preview
+
+## Data Flow
+
+```mermaid
+graph TD
+    W[Workers] -->|Frame Data| O[Orchestrator]
+    O -->|WebSocket Frames| S[Server]
+    S -->|Credit Updates| O
+    
+    subgraph "Server Architecture"
+        S --> SA[ServerApp]
+        SA --> DC[DisplayController]
+        SA --> FB[FrameBuffer]
+        SA --> FM[FrameMapper]
+        SA --> PE[ProtocolEncoder]
+        SA --> SP[SerialPort]
+        
+        DC -->|Policy Decisions| SP
+        FB -->|Buffered Frames| DC
+        FM -->|Canvas→Panel Mapping| DC
+        PE -->|Protocol Encoding| SP
+        SP -->|RS-485| H[Hardware]
+    end
+    
+    subgraph "Orchestrator"
+        O --> FS[Frame Scheduler]
+        O --> WS[Worker Supervisor]
+        WS --> W
+        FS -->|Credits & Timing| W
+    end
+    
+    C[Client UI] <-->|REST API| S
+    C <-->|WebSocket| O
+```
 
 ## Quick Start
 
@@ -54,17 +90,18 @@ Each component has its own setup and documentation:
 The server uses `config.toml` for display configuration:
 
 ```toml
-[canvas]
-width = 28
-height = 7
+[display]
+panel_type = "28x7"     # "7x7", "14x7", or "28x7"
+columns = 2             # Number of panels horizontally
+rows = 1                # Number of panels vertically
+refresh_rate = 30.0     # Target FPS
+buffer_duration = 0.5   # Frame buffer duration in seconds
 
 [serial]
-mock = true  # Set false for real hardware
-
-[[panels]]
-id = "main"
-address = 0
-# Panel configuration...
+port = "/dev/ttyUSB0"
+baudrate = 9600
+timeout = 1.0
+mock = true             # Set false for real hardware
 ```
 
 ## Features

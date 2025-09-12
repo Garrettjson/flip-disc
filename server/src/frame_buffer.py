@@ -75,7 +75,7 @@ class AsyncFrameBuffer:
             f"Frame buffer initialized: {self.target_fps}fps, {self.buffer_duration}s buffer ({self.max_buffer_size} frames)"
         )
         logger.info(
-            f"Canvas dimensions: {self.config.canvas_size.w}x{self.config.canvas_size.h}, {self.config.panel_count} panels"
+            f"Canvas dimensions: {self.config.canvas_size.w}x{self.config.canvas_size.h}, {len(self.config.panels)} panels"
         )
 
     async def add_frame(self, frame: Frame) -> bool:
@@ -331,8 +331,6 @@ class AsyncFrameBuffer:
         """
         self._display_running = False
         logger.info("Stopping display loop")
-
-
 
 
 def create_frame_for_canvas(

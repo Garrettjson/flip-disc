@@ -11,6 +11,7 @@ from aioserial import AioSerial
 
 from .config import DisplayConfig
 from .protocol_config import FLUSH_COMMAND
+from .protocol_encoder import ProtocolEncoder
 
 logger = logging.getLogger(__name__)
 
@@ -19,34 +20,6 @@ class SerialConnectError(Exception):
     """Raised for transport-level serial errors."""
 
     pass
-
-
-class ProtocolEncoder:
-    """Pure framing encoder for panel payloads.
-
-    Frame format (per your protocol docs):
-      [0x80, address, len_hi, len_lo, <payload bytes...>, 0x8F]
-    """
-
-    HEADER = 0x80
-    EOT = 0x8F
-
-    def encode_panel_frame(self, address: int, payload: bytes) -> bytes:
-        n = len(payload)
-        return (
-            bytes([self.HEADER, address & 0xFF, (n >> 8) & 0xFF, n & 0xFF])
-            + payload
-            + bytes([self.EOT])
-        )
-
-    def encode_many(self, panel_payloads: Dict[int, bytes]) -> Iterable[bytes]:
-        for addr, payload in panel_payloads.items():
-            yield self.encode_panel_frame(addr, payload)
-
-    def encode_flush(self, flush_command: bytes) -> bytes:
-        # In case your FLUSH command already includes header/EOT, just pass-through.
-        # If not, you could wrap it similarly to encode_panel_frame.
-        return flush_command
 
 
 class SerialWriter(ABC):

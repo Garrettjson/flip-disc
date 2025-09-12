@@ -10,28 +10,15 @@ from .panel_mapper import update_panels
 logger = logging.getLogger(__name__)
 
 
-class SerialControllerError(Exception):
-    """Base exception for serial controller errors."""
-    pass
-
-
-class CanvasFrameError(SerialControllerError):
+class CanvasFrameError(Exception):
     """Raised when canvas frame transmission fails."""
+
     pass
 
 
-class TestPatternError(SerialControllerError):
+class TestPatternError(Exception):
     """Raised when test pattern transmission fails."""
-    pass
 
-
-class NotConnectedError(SerialControllerError):
-    """Raised when attempting operations while not connected."""
-    pass
-
-
-class PanelFrameError(SerialControllerError):
-    """Raised when panel frame transmission fails."""
     pass
 
 
@@ -52,9 +39,7 @@ class SerialController:
         self.writer: SerialWriter = create_writer(display_config, use_hardware)
 
         # Create panel lookup for easy access
-        self._panels_by_address = {
-            panel.address: panel for panel in self.config.panels
-        }
+        self._panels_by_address = {panel.address: panel for panel in self.config.panels}
 
         self.logger = logging.getLogger(f"{__name__}")
 
@@ -70,32 +55,21 @@ class SerialController:
         Connect to the serial interface.
 
         Raises:
-            SerialControllerError: If connection fails
+            SerialTransportError: If connection fails
         """
-        try:
-            await self.writer.connect()
-            self.logger.info("Serial controller connected successfully")
-        except Exception as e:
-            raise SerialControllerError(f"Failed to connect: {e}") from e
+        await self.writer.connect()
+        self.logger.info("Serial controller connected successfully")
 
     async def disconnect(self) -> None:
-        """
-        Disconnect from serial interface.
-
-        Raises:
-            SerialControllerError: If disconnection fails
-        """
-        try:
-            await self.writer.disconnect()
-            self.logger.info("Serial controller disconnected")
-        except Exception as e:
-            raise SerialControllerError(f"Failed to disconnect: {e}") from e
+        """Disconnect from serial interface."""
+        await self.writer.disconnect()
+        self.logger.info("Serial controller disconnected")
 
     def is_connected(self) -> bool:
         """Check if serial connection is active."""
         return self.writer.is_connected()
 
-    async def send_canvas_frame(self, canvas_bits: bytes) -> None:
+    async def send_canvas_frame(self, canvas_bits: bytes) -> bool:
         """
         Send a full canvas frame to all panels.
 
@@ -107,12 +81,12 @@ class SerialController:
         Args:
             canvas_bits: Packed bitmap for entire canvas
 
-        Raises:
-            NotConnectedError: If not connected to serial interface
-            CanvasFrameError: If canvas frame transmission fails
+        Returns:
+            bool: True if all panels updated successfully, False otherwise
         """
         if not self.is_connected():
-            raise NotConnectedError("Cannot send canvas frame - not connected")
+            self.logger.error("Cannot send canvas frame - not connected")
+            return False
 
         try:
             # Map canvas to panel data (now returns numpy arrays directly)
@@ -124,23 +98,21 @@ class SerialController:
             )
 
             if not panel_arrays:
-                raise CanvasFrameError("No panel data generated from canvas")
+                self.logger.warning("No panel data generated from canvas")
+                return False
 
-            # Send to all panels (arrays will be packed to bytes at transmission boundary)
+            # Send to all panels
             await self.writer.write_panel_data(panel_arrays)
             self.logger.debug(f"Canvas frame sent to {len(panel_arrays)} panels")
+            return True
 
-        except NotConnectedError:
-            raise
-        except CanvasFrameError:
-            raise
         except Exception as e:
-            raise CanvasFrameError(f"Error sending canvas frame: {e}") from e
-
+            self.logger.error(f"Error sending canvas frame: {e}")
+            return False
 
     async def send_panel_frame(
         self, panel_address: int, frame_data: np.ndarray
-    ) -> None:
+    ) -> bool:
         """
         Send a frame directly to a specific panel.
 
@@ -148,23 +120,25 @@ class SerialController:
             panel_address: RS-485 address of the panel
             frame_data: numpy array of pixel data (height x width)
 
-        Raises:
-            NotConnectedError: If not connected to serial interface
-            PanelFrameError: If panel frame transmission fails
+        Returns:
+            bool: True if successful, False otherwise
         """
         if not self.is_connected():
-            raise NotConnectedError("Cannot send panel frame - not connected")
+            self.logger.error("Cannot send panel frame - not connected")
+            return False
 
         panel = self._panels_by_address.get(panel_address)
         if not panel:
-            raise PanelFrameError(f"Unknown panel address {panel_address}")
+            self.logger.error(f"Unknown panel address {panel_address}")
+            return False
 
         # Validate frame dimensions
         expected_shape = (panel.size.h, panel.size.w)
         if frame_data.shape != expected_shape:
-            raise PanelFrameError(
+            self.logger.error(
                 f"Panel {panel.id} frame shape {frame_data.shape} != expected {expected_shape}"
             )
+            return False
 
         try:
             # Send as single panel numpy array (will be packed at transmission boundary)
@@ -172,32 +146,39 @@ class SerialController:
             self.logger.debug(
                 f"Frame sent to panel '{panel.id}' (address {panel_address})"
             )
+            return True
         except Exception as e:
-            raise PanelFrameError(
+            self.logger.error(
                 f"Failed to send frame to panel '{panel.id}' (address {panel_address}): {e}"
-            ) from e
+            )
+            return False
 
-    async def send_test_pattern(self, pattern: str = "checkerboard") -> None:
+    async def send_test_pattern(self, pattern: str = "checkerboard") -> bool:
         """
         Send a test pattern to all panels.
 
         Args:
             pattern: Pattern type ("checkerboard", "border", "solid", "clear")
 
-        Raises:
-            TestPatternError: If test pattern transmission fails
+        Returns:
+            bool: True if successful, False otherwise
         """
         from .panel_mapper import create_test_pattern
 
         try:
             canvas_bits = create_test_pattern(self.config, pattern)
-            await self.send_canvas_frame(canvas_bits)
-            self.logger.info(f"Test pattern '{pattern}' sent successfully")
+            success = await self.send_canvas_frame(canvas_bits)
 
-        except (NotConnectedError, CanvasFrameError) as e:
-            raise TestPatternError(f"Failed to send test pattern '{pattern}': {e}") from e
+            if success:
+                self.logger.info(f"Test pattern '{pattern}' sent successfully")
+            else:
+                self.logger.error(f"Failed to send test pattern '{pattern}'")
+
+            return success
+
         except Exception as e:
-            raise TestPatternError(f"Error creating test pattern '{pattern}': {e}") from e
+            self.logger.error(f"Error sending test pattern: {e}")
+            return False
 
     def get_panel_by_address(self, address: int) -> Optional[PanelConfig]:
         """Get panel configuration by address."""

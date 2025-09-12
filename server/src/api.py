@@ -284,9 +284,6 @@ def parse_frame_from_binary(
     Parse binary frame data using Kaitai Struct protocol.
     Format: [4B magic][2B seq][4B ts][2B width][2B height][2B payload_len][N bytes bitmap]
     """
-    if FlipdiscFrame is None:
-        raise ValueError("Kaitai parser not available")
-
     try:
         # Parse frame using Kaitai Struct
         parsed_frame = FlipdiscFrame.from_bytes(data)
