@@ -30,7 +30,7 @@ uv run pytest -q
 
 ## Configuration
 
-Edit `config.toml` to configure your panel layout:
+Edit `config.toml` to configure your panel layout (sizes are width × height; panels are 7 pixels tall):
 
 ```toml
 [display]

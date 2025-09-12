@@ -47,7 +47,8 @@ graph TD
 
 ## Hardware & Protocol
 
-- Display panels: Alpha Zeta flip‑disc, 7×28 pixels per panel (also supports 7×7 and 14×7)
+- Notation: sizes are (width × height)
+- Display panels: Alpha Zeta flip‑disc, 28×7 pixels per panel (also supports 7×7 and 14×7)
 - Bus: RS‑485, each panel has an address; broadcast supported
 - Panel update unit: full panel only — no single‑pixel writes
 - Protocol (manufacturer spec):
