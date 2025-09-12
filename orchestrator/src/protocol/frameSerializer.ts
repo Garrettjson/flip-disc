@@ -42,11 +42,12 @@ export class FrameSerializer {
     const totalSize = headerSize + bitmap.length;
     const buffer = new ArrayBuffer(totalSize);
     const view = new DataView(buffer);
+    const bytes = new Uint8Array(buffer);
     
     let offset = 0;
     
-    // Magic number "FDIS" (0x46444953)
-    view.setUint32(offset, 0x46444953, true); // little-endian
+    // Magic number "FDIS" as literal bytes
+    bytes.set([0x46, 0x44, 0x49, 0x53], offset);
     offset += 4;
     
     // Sequence number (2 bytes)
