@@ -18,13 +18,15 @@ from fastapi.testclient import TestClient
 from src.main import create_app
 
 
-def build_temp_config(panel_type: str = "28x7", columns: int = 1, rows: int = 1) -> Path:
+def build_temp_config(
+    panel_type: str = "28x7", columns: int = 1, rows: int = 1
+) -> Path:
     content = f"""
 [display]
 panel_type = "{panel_type}"
 columns = {columns}
 rows = {rows}
-refresh_rate = 30.0
+refresh_rate = 20.0
 buffer_duration = 0.5
 
 [serial]

@@ -45,15 +45,16 @@
     <div class="controls-grid">
         <div class="controls status-card">
             <h3>Animation Controls</h3>
-            <button class="button" id="start-bouncing-dot" onclick="startAnimation('bouncing-dot')">
-                Start Bouncing Dot
-            </button>
+            <label for="animation-select"><strong>Animation:</strong></label>
+            <select id="animation-select" style="min-width:220px;"></select>
+            <button class="button" id="start-animation" onclick="startSelectedAnimation()">Start Animation</button>
             <button class="button danger" id="stop-animation" onclick="stopAnimation()" disabled>
                 Stop Animation
             </button>
             <button class="button" onclick="getStatus()">
                 Refresh Status
             </button>
+            <div id="animation-config" style="margin-top:12px;"></div>
             <div style="margin-top:12px;">
                 <label for="fps-input"><strong>Target FPS:</strong></label>
                 <input id="fps-input" type="number" min="1" max="60" step="1" value="30" style="width:80px;">
@@ -196,7 +197,7 @@
         function updateAnimationStatus() {
             animationRunningSpan.textContent = animationRunning ? 'Yes' : 'No';
             
-            const startButton = document.getElementById('start-bouncing-dot');
+            const startButton = document.getElementById('start-animation');
             const stopButton = document.getElementById('stop-animation');
             
             startButton.disabled = animationRunning;
@@ -247,17 +248,13 @@
             }
         }
         
-        function startAnimation(type) {
+        function startSelectedAnimation() {
             if (!isConnected) return;
-            
-            const workerPath = `./src/workers/${type}-worker.ts`;
-            
-            ws.send(JSON.stringify({
-                type: 'start_animation',
-                worker_path: workerPath
-            }));
-            
-            addLogEntry(`Starting ${type} animation`, 'info');
+            const sel = document.getElementById('animation-select');
+            const workerPath = sel && sel.value ? sel.value : './src/workers/bouncing-dot-worker.ts';
+            const params = collectAnimationParams(workerPath);
+            ws.send(JSON.stringify({ type: 'start_animation', worker_path: workerPath, params }));
+            addLogEntry(`Starting animation: ${workerPath}`, 'info');
             // Optimistically enable stop for UX; status will confirm
             animationRunning = true;
             updateAnimationStatus();
@@ -315,6 +312,60 @@
         
         // Initialize
         connect();
+        loadWorkers();
+
+        async function loadWorkers() {
+            try {
+                const res = await fetch('/api/workers');
+                const data = await res.json();
+                const sel = document.getElementById('animation-select');
+                if (!sel) return;
+                sel.innerHTML = '';
+                const workers = (data && data.workers) ? data.workers : [];
+                workers.sort((a,b)=>String(a.name||a.id).localeCompare(String(b.name||b.id)));
+                for (const w of workers) {
+                    const opt = document.createElement('option');
+                    opt.value = w.path;
+                    opt.textContent = w.name || w.id || w.path;
+                    sel.appendChild(opt);
+                }
+                sel.addEventListener('change', () => buildAnimationConfig(sel.value));
+                if (workers.length) buildAnimationConfig(workers[0].path);
+            } catch (e) {
+                addLogEntry('Failed to load workers: ' + e, 'error');
+            }
+        }
+
+        function buildAnimationConfig(workerPath) {
+            const cfg = document.getElementById('animation-config');
+            if (!cfg) return;
+            cfg.innerHTML = '';
+            if (workerPath.endsWith('text/text-scroll-worker.ts')) {
+                const textRow = document.createElement('div');
+                textRow.innerHTML = `<label><strong>Text:</strong></label> <input id="text-input" type="text" value="HELLO WORLD" style="width: 220px;">`;
+                const speedRow = document.createElement('div');
+                speedRow.style.marginTop = '8px';
+                speedRow.innerHTML = `<label><strong>Speed:</strong></label> <input id=\"speed-input\" type=\"number\" step=\"0.1\" value=\"1\" style=\"width: 80px;\">`;
+                cfg.appendChild(textRow);
+                cfg.appendChild(speedRow);
+            } else {
+                const note = document.createElement('div');
+                note.style.opacity = '0.7';
+                note.textContent = 'No additional options for this animation.';
+                cfg.appendChild(note);
+            }
+        }
+
+        function collectAnimationParams(workerPath) {
+            if (workerPath.endsWith('text/text-scroll-worker.ts')) {
+                const textEl = document.getElementById('text-input');
+                const speedEl = document.getElementById('speed-input');
+                const text = textEl ? textEl.value : 'HELLO WORLD';
+                const speed = speedEl ? parseFloat(speedEl.value) : 1;
+                return { text, speed: Number.isFinite(speed) ? speed : 1 };
+            }
+            return {};
+        }
 
         // Basic frame preview renderer
         function renderPreview(frame) {

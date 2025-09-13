@@ -115,7 +115,7 @@ export interface WebSocketData {
 }
 
 // UI → Orchestrator WebSocket messages
-export interface StartAnimationMessage { type: "start_animation"; worker_path: string }
+export interface StartAnimationMessage { type: "start_animation"; worker_path: string; params?: Record<string, any> }
 export interface StopAnimationMessage { type: "stop_animation" }
 export interface GetStatusMessage { type: "get_status" }
 export type UIClientMessage = StartAnimationMessage | StopAnimationMessage | GetStatusMessage;

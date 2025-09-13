@@ -37,7 +37,7 @@ Edit `config.toml` to configure your panel layout (sizes are width × height; pa
 panel_type = "28x7"     # "7x7", "14x7", or "28x7"
 columns = 2             # Number of panels horizontally  
 rows = 1                # Number of panels vertically
-refresh_rate = 30.0     # Target FPS
+refresh_rate = 20.0     # Target FPS
 buffer_duration = 0.5   # Frame buffer duration in seconds
 
 [serial]
@@ -139,7 +139,7 @@ Frame format: `[4B frame_id][1B flags][2B width][2B height][data]`
 panel_type = "28x7"
 columns = 1
 rows = 1
-refresh_rate = 30.0
+refresh_rate = 20.0
 buffer_duration = 0.5
 ```
 
@@ -149,7 +149,7 @@ buffer_duration = 0.5
 panel_type = "28x7"
 columns = 2
 rows = 1
-refresh_rate = 30.0
+refresh_rate = 20.0
 buffer_duration = 0.5
 ```
 
@@ -159,7 +159,7 @@ buffer_duration = 0.5
 panel_type = "28x7"
 columns = 1  
 rows = 2
-refresh_rate = 30.0
+refresh_rate = 20.0
 buffer_duration = 0.5
 ```
 

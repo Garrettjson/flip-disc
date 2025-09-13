@@ -75,7 +75,7 @@ class DisplayConfig:
     canvas_size: Size
     panels: List[PanelConfig]
     serial: SerialConfig = field(default_factory=SerialConfig)
-    refresh_rate: float = 30.0
+    refresh_rate: float = 20.0
     buffer_duration: float = 0.5
 
     @property
@@ -156,7 +156,7 @@ def load_from_toml(config_path: str | Path) -> DisplayConfig:
     mock = true
 
     [runtime]
-    refresh_rate = 30.0
+    refresh_rate = 20.0
     buffer_duration = 0.5
     """
     p = Path(config_path)
@@ -183,7 +183,7 @@ def load_from_toml(config_path: str | Path) -> DisplayConfig:
                 timeout=float(serial.get("timeout", 1.0)),
                 mock=bool(serial.get("mock", True)),
             ),
-            refresh_rate=float(runtime.get("refresh_rate", 30.0)),
+            refresh_rate=float(runtime.get("refresh_rate", 20.0)),
             buffer_duration=float(runtime.get("buffer_duration", 0.5)),
         )
     else:
@@ -192,7 +192,7 @@ def load_from_toml(config_path: str | Path) -> DisplayConfig:
         panel_type = str(display.get("panel_type", "28x7")).lower()
         columns = int(display.get("columns", 1))
         rows = int(display.get("rows", 1))
-        refresh_rate = float(display.get("refresh_rate", 30.0))
+        refresh_rate = float(display.get("refresh_rate", 20.0))
         buffer_duration = float(display.get("buffer_duration", 0.5))
 
         # Determine panel dimensions
@@ -287,7 +287,7 @@ def default_config() -> DisplayConfig:
         canvas_size=Size(28, 28),
         panels=panels,
         serial=SerialConfig(port="/dev/ttyUSB0", baudrate=9600, timeout=1.0, mock=True),
-        refresh_rate=30.0,
+        refresh_rate=20.0,
         buffer_duration=0.5,
     )
     cfg.validate_within_canvas()

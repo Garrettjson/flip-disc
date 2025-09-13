@@ -100,7 +100,7 @@ export class FlipDiscOrchestrator {
     }
   }
 
-  async startAnimation(workerPath: string): Promise<void> {
+  async startAnimation(workerPath: string, params?: Record<string, unknown>): Promise<void> {
     if (!this.display_info) {
       throw new Error("Orchestrator not initialized");
     }
@@ -116,26 +116,58 @@ export class FlipDiscOrchestrator {
 
       // Create worker
       this.current_worker = new Worker(workerPath);
+
+      // Attach basic diagnostics to surface worker errors
+      this.current_worker.addEventListener('error', (e: any) => {
+        try {
+          const msg = e?.message || e?.error?.message || String(e);
+          console.error('Worker error:', msg, e?.error ?? e);
+        } catch {
+          console.error('Worker error (uninspectable)');
+        }
+      });
+      this.current_worker.addEventListener('messageerror', (e: any) => {
+        console.error('Worker messageerror:', e);
+      });
       
       // Configure worker
       this.current_worker.postMessage({
         command: 'configure',
         width: this.display_info.canvas_width,
         height: this.display_info.canvas_height,
-        params: {}
+        params: params || {}
+      });
+
+      // Wait for configure acknowledgement to avoid racing generate
+      await new Promise<void>((resolve, reject) => {
+        const workerRef = this.current_worker!;
+        const handleConfigAck = (event: MessageEvent) => {
+          const response = event.data as any;
+          if (response && typeof response.success === 'boolean' && response.frame_id === 0) {
+            workerRef.removeEventListener('message', handleConfigAck);
+            clearTimeout(timerId);
+            return response.success ? resolve() : reject(new Error(response.error || 'Worker configure failed'));
+          }
+        };
+        workerRef.addEventListener('message', handleConfigAck);
+        const timerId = setTimeout(() => {
+          workerRef.removeEventListener('message', handleConfigAck);
+          reject(new Error('Worker configure timeout'));
+        }, 1000);
       });
 
       // Start frame scheduler with worker frame generator
       const frameGenerator = async (): Promise<Frame | null> => {
         return new Promise((resolve, reject) => {
-          if (!this.current_worker) {
+          if (!this.current_worker || !this.running) {
             resolve(null);
             return;
           }
 
           // Request frame from worker
           const frameId = Date.now();
-          this.current_worker.postMessage({
+          const workerRef = this.current_worker;
+          workerRef.postMessage({
             command: 'generate',
             frame_id: frameId
           });
@@ -143,10 +175,9 @@ export class FlipDiscOrchestrator {
           // Listen for response
           const handleMessage = (event: MessageEvent) => {
             const response = event.data;
-            
             if (response.frame_id === frameId) {
-              this.current_worker?.removeEventListener('message', handleMessage);
-              
+              workerRef.removeEventListener('message', handleMessage);
+              clearTimeout(timerId);
               if (response.success && response.data) {
                 resolve({
                   frame_id: frameId,
@@ -162,13 +193,17 @@ export class FlipDiscOrchestrator {
             }
           };
 
-          this.current_worker.addEventListener('message', handleMessage);
+          workerRef.addEventListener('message', handleMessage);
 
-          // Timeout after 100ms
-          setTimeout(() => {
-            this.current_worker?.removeEventListener('message', handleMessage);
-            reject(new Error('Worker timeout'));
-          }, 100);
+          // Timeout after 150ms
+          const timerId = setTimeout(() => {
+            workerRef.removeEventListener('message', handleMessage);
+            if (!this.running || this.current_worker !== workerRef) {
+              resolve(null);
+            } else {
+              reject(new Error('Worker timeout'));
+            }
+          }, 150);
         });
       };
 

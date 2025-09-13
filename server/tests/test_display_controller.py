@@ -20,7 +20,7 @@ def single_panel_config() -> DisplayConfig:
         canvas_size=Size(28, 7),
         panels=[panel],
         serial=SerialConfig(port="/dev/ttyUSB0", baudrate=9600, timeout=1.0, mock=True),
-        refresh_rate=30.0,
+        refresh_rate=20.0,
         buffer_duration=0.5,
     )
     # Validate relationships

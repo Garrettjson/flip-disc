@@ -9,19 +9,23 @@ import { Glob } from "bun";
 export async function getWorkers(request: Request, orchestrator: FlipDiscOrchestrator): Promise<Response> {
   try {
     // Find worker files in the workers directory
-    const glob = new Glob("**/*-worker.ts");
-    const workerFiles = Array.from(glob.scanSync("./src/workers"));
+  const glob = new Glob("**/*-worker.ts");
+  const workerFiles = Array.from(glob.scanSync("./src/workers"));
     
-    const workers = workerFiles.map(file => {
-      // Extract worker name from filename
-      const name = file.replace(/.*\//, '').replace('-worker.ts', '');
+    const workers = workerFiles.map((file) => {
+      // Preserve subdirectories in path (e.g., text/text-scroll-worker.ts)
+      const base = file.replace(/.*\//, '');
+      const name = base.replace('-worker.ts', '');
       const id = name.replace(/[^a-z0-9]/gi, '-').toLowerCase();
-      
+
       return {
         id,
-        name: name.split('-').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' '),
-        path: `./src/workers/${file.replace(/.*\//, '')}`,
-        description: getWorkerDescription(name)
+        name: name
+          .split('-')
+          .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
+          .join(' '),
+        path: `./src/workers/${file}`,
+        description: getWorkerDescription(name),
       };
     });
     

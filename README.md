@@ -175,7 +175,7 @@ The server uses `config.toml` for display configuration:
 panel_type = "28x7"     # "7x7", "14x7", or "28x7"
 columns = 2             # Number of panels horizontally
 rows = 1                # Number of panels vertically
-refresh_rate = 30.0     # Target FPS
+refresh_rate = 20.0     # Target FPS
 buffer_duration = 0.5   # Frame buffer duration in seconds
 
 [serial]

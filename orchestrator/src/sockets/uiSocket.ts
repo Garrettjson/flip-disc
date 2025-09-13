@@ -30,13 +30,13 @@ export class UIWebSocketHandler {
       const raw = JSON.parse(message.toString());
 
       // Zod schemas for UI messages
-      const StartSchema = z.object({ type: z.literal('start_animation'), worker_path: z.string().min(1) });
+      const StartSchema = z.object({ type: z.literal('start_animation'), worker_path: z.string().min(1), params: z.record(z.any()).optional() });
       const StopSchema = z.object({ type: z.literal('stop_animation') });
       const GetSchema = z.object({ type: z.literal('get_status') });
 
       if (StartSchema.safeParse(raw).success) {
-        const data: UIClientMessage = raw;
-        orchestrator.startAnimation((data as any).worker_path).catch(console.error);
+        const data: UIClientMessage = raw as any;
+        orchestrator.startAnimation((data as any).worker_path, (data as any).params).catch(console.error);
         return;
       }
       if (StopSchema.safeParse(raw).success) {

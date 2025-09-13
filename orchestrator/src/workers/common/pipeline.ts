@@ -163,18 +163,21 @@ export function initializeWorker(worker: AnimationWorker): void {
     const message = event.data;
     
     switch (message.command) {
-      case 'configure':
+      case 'configure': {
         const configResponse = configureWorker(message);
         self.postMessage(configResponse);
         break;
-        
-      case 'generate':
+      }
+
+      case 'generate': {
         const frameId = message.frame_id || Date.now();
         const response = generateFrame(frameId);
-        self.postMessage(response);
+        const transfer = response.data && response.data.byteLength ? [response.data.buffer] : [];
+        self.postMessage(response, transfer as any);
         break;
+      }
         
-      case 'stop':
+      case 'stop': {
         // Worker cleanup if needed
         worker_instance = null;
         self.postMessage({
@@ -183,6 +186,7 @@ export function initializeWorker(worker: AnimationWorker): void {
           success: true
         });
         break;
+      }
         
       default:
         self.postMessage({
