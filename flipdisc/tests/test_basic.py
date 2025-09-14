@@ -8,8 +8,8 @@ import numpy as np
 from flipdisc.animations import get_animation, list_animations
 from flipdisc.config import DisplayConfig
 from flipdisc.core.types import Frame
-from flipdisc.services.hardware import HardwareTask
-from flipdisc.services.worker_manager import WorkerManager
+from flipdisc.engine.display_pacer import DisplayPacer
+from flipdisc.engine.worker_pool import AnimationWorkerPool
 
 
 def create_test_pattern(
@@ -28,7 +28,7 @@ def create_test_pattern(
 
 async def _async_test_hardware_basic():
     config = DisplayConfig()
-    hardware = HardwareTask(config)
+    hardware = DisplayPacer(config)
 
     hw_task = asyncio.create_task(hardware.start())
     await asyncio.sleep(0.1)
@@ -72,8 +72,8 @@ async def _async_test_animations_direct():
 
 async def _async_test_worker_integration():
     config = DisplayConfig()
-    hardware = HardwareTask(config)
-    manager = WorkerManager(config, hardware_task=hardware, num_workers=1)
+    hardware = DisplayPacer(config)
+    manager = AnimationWorkerPool(config, display_pacer=hardware, num_workers=1)
 
     hw_task = asyncio.create_task(hardware.start())
     await manager.start()

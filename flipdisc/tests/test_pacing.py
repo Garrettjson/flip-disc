@@ -1,15 +1,15 @@
 import asyncio
 
 from flipdisc.config import DisplayConfig
-from flipdisc.services.hardware import HardwareTask
-from flipdisc.services.worker_manager import WorkerManager
+from flipdisc.engine.display_pacer import DisplayPacer
+from flipdisc.engine.worker_pool import AnimationWorkerPool
 
 
 async def _async_pacing_with_mock_serial():
     # Slow fps to make test deterministic(ish)
     cfg = DisplayConfig(refresh_rate=5.0, buffer_duration=0.4)
-    hw = HardwareTask(cfg)
-    mgr = WorkerManager(cfg, hardware_task=hw, num_workers=1)
+    hw = DisplayPacer(cfg)
+    mgr = AnimationWorkerPool(cfg, display_pacer=hw, num_workers=1)
 
     hw_task = asyncio.create_task(hw.start())
     await mgr.start()

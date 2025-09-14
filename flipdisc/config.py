@@ -4,7 +4,7 @@ import tomllib
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from .exceptions import ConfigurationError
+from .core.exceptions import ConfigurationError
 
 
 @dataclass
@@ -38,7 +38,6 @@ class DisplayConfig:
     address_base: int = 1
 
     def __post_init__(self):
-
         # Validation
         if self.width <= 0 or self.height <= 0:
             raise ConfigurationError(

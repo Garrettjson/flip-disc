@@ -101,7 +101,5 @@ class BouncingDot(Animation):
                 dist = math.sqrt((x - cx) ** 2 + (y - cy) ** 2)
                 if dist <= radius + 0.5:  # Include edge pixels for anti-aliasing
                     # Anti-aliasing: fade based on distance from edge
-                    alpha = (
-                        1.0 if dist <= radius - 0.5 else max(0, radius + 0.5 - dist)
-                    )
+                    alpha = 1.0 if dist <= radius - 0.5 else max(0, radius + 0.5 - dist)
                     frame[y, x] = max(frame[y, x], intensity * alpha)

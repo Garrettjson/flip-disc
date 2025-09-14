@@ -10,7 +10,7 @@ from queue import Empty
 import numpy as np
 
 from ..animations import Animation, get_animation, list_animations
-from ..exceptions import AnimationError
+from ..core.exceptions import AnimationError
 from ..gfx.dither import ordered_bayer
 from .ipc import (
     Command,

@@ -13,14 +13,21 @@ async def _run_server(args: argparse.Namespace) -> int:
     setup_logging(args.log_level)
     app = FlipDiscApplication()
     try:
-        await app.start(config_path=args.config, num_workers=args.workers, host=args.host, port=args.port)
+        await app.start(
+            config_path=args.config,
+            num_workers=args.workers,
+            host=args.host,
+            port=args.port,
+        )
         return 0
     finally:
         await app.stop()
 
 
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(prog="flipdisc", description="Flip-Disc controller")
+    parser = argparse.ArgumentParser(
+        prog="flipdisc", description="Flip-Disc controller"
+    )
     sub = parser.add_subparsers(dest="cmd", required=True)
 
     p_run = sub.add_parser("run-server", help="Run the API server")

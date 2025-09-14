@@ -13,10 +13,10 @@ import signal
 import sys
 
 from .config import load_config
+from .engine.api_server import ApiServer
+from .engine.display_pacer import DisplayPacer
+from .engine.worker_pool import AnimationWorkerPool
 from .logging_conf import setup_logging
-from .services.api import APITask
-from .services.hardware import HardwareTask
-from .services.worker_manager import WorkerManager
 
 
 class FlipDiscApplication:
@@ -52,19 +52,19 @@ class FlipDiscApplication:
             )
 
             # Create tasks
-            self.hardware_task = HardwareTask(self.config)
-            self.worker_manager = WorkerManager(
+            self.hardware_task = DisplayPacer(self.config)
+            self.worker_manager = AnimationWorkerPool(
                 self.config, self.hardware_task, num_workers
             )
-            self.api_task = APITask(
+            self.api_task = ApiServer(
                 self.config, self.hardware_task, self.worker_manager
             )
 
             # Start tasks in order
-            logger.info("Starting HardwareTask...")
+            logger.info("Starting DisplayPacer...")
             self._hardware_task = asyncio.create_task(self.hardware_task.start())
 
-            logger.info(f"Starting WorkerManager with {num_workers} workers...")
+            logger.info(f"Starting AnimationWorkerPool with {num_workers} workers...")
             await self.worker_manager.start()
 
             # Do not start any animation by default; user controls start/stop via API/UI

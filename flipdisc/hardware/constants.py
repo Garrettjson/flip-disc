@@ -5,7 +5,6 @@ Centralizes magic numbers from the protocol to improve readability and safety.
 
 from enum import IntEnum
 
-
 # Frame delimiters
 START_BYTE = 0x80
 END_BYTE = 0x8F
@@ -39,4 +38,3 @@ class Command(IntEnum):
     # 14x7
     W14_REFRESH = 0x92
     W14_BUFFERED = 0x93
-

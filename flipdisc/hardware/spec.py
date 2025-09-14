@@ -38,21 +38,36 @@ class ProtocolConfig(NamedTuple):
 PROTOCOL_MAP: dict[tuple[DataBytes, Refresh], ProtocolConfig] = {
     # 7x7 (7 data bytes): only instant
     (DataBytes.BYTES_7, Refresh.INSTANT): ProtocolConfig(
-        command_byte=0x87, data_bytes=7, supports_buffered=False, description="7x7 instant"
+        command_byte=0x87,
+        data_bytes=7,
+        supports_buffered=False,
+        description="7x7 instant",
     ),
     # 14x7 (14 data bytes): instant and buffered
     (DataBytes.BYTES_14, Refresh.INSTANT): ProtocolConfig(
-        command_byte=0x92, data_bytes=14, supports_buffered=True, description="14x7 instant"
+        command_byte=0x92,
+        data_bytes=14,
+        supports_buffered=True,
+        description="14x7 instant",
     ),
     (DataBytes.BYTES_14, Refresh.BUFFER): ProtocolConfig(
-        command_byte=0x93, data_bytes=14, supports_buffered=True, description="14x7 buffered"
+        command_byte=0x93,
+        data_bytes=14,
+        supports_buffered=True,
+        description="14x7 buffered",
     ),
     # 28x7 (28 data bytes): instant and buffered
     (DataBytes.BYTES_28, Refresh.INSTANT): ProtocolConfig(
-        command_byte=0x83, data_bytes=28, supports_buffered=True, description="28x7 instant"
+        command_byte=0x83,
+        data_bytes=28,
+        supports_buffered=True,
+        description="28x7 instant",
     ),
     (DataBytes.BYTES_28, Refresh.BUFFER): ProtocolConfig(
-        command_byte=0x84, data_bytes=28, supports_buffered=True, description="28x7 buffered"
+        command_byte=0x84,
+        data_bytes=28,
+        supports_buffered=True,
+        description="28x7 buffered",
     ),
 }
 
@@ -78,4 +93,3 @@ def data_bytes_from_panel_size(width: int, height: int) -> DataBytes:
 
 def supports_buffered_refresh(data_bytes: DataBytes) -> bool:
     return (data_bytes, Refresh.BUFFER) in PROTOCOL_MAP
-

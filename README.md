@@ -7,7 +7,7 @@ Highlights
 - Backpressure with credit-based workers (server “pulls” frames); ~0.5s buffer for smoothness
 - Multiprocessing animation workers generate grayscale, dither to binary (bool), and return images
 - Segmented panel writes + proper flush semantics (7x7 immediate refresh; 14x7/28x7 buffered + flush)
-- Clean separation: services (runtime tasks), hw (protocol/packing), anims (step/render), workers (IPC), core (types)
+- Clean separation: engine (runtime components), hardware (protocol/transport), animations (step/render), workers (IPC), core (types)
 
 
 ## Quick Start
@@ -81,18 +81,17 @@ flip-disc/
 └─ flipdisc/
    ├─ __main__.py             # `python -m flipdisc`
    ├─ __init__.py
-   ├─ app.py                  # Orchestrates services and lifecycle
+   ├─ app.py                  # Orchestrates engine lifecycle
    ├─ cli.py                  # Small CLI: run-server
    ├─ logging_conf.py
    ├─ config.py               # Config loading + validation (TOML)
-   ├─ serial_port.py          # Hardware vs. mock serial (async)
    ├─ core/
-   │  └─ types.py             # Frame dataclass
-   ├─ services/               # Long-lived runtime tasks
-   │  ├─ README.md
-   │  ├─ api.py               # FastAPI endpoints (/status, /anim, /fps, ...)
-   │  ├─ hardware.py          # Ticker: pacing, buffer, RS-485 writes, credits
-   │  └─ worker_manager.py    # Spawns workers, issues credits, enqueues frames
+   │  ├─ types.py             # Frame dataclass
+   │  └─ exceptions.py        # Project-wide exceptions
+   ├─ engine/                 # Long-lived runtime components
+   │  ├─ api_server.py        # FastAPI endpoints
+   │  ├─ display_pacer.py     # Pacing, buffer, serial writes, credits
+   │  └─ worker_pool.py       # Spawns workers, issues credits, enqueues frames
    ├─ workers/
    │  ├─ ipc.py               # Simple dataclasses for IPC
    │  └─ runner.py            # Worker loop (step -> render_gray -> dither -> bool)
@@ -101,10 +100,13 @@ flip-disc/
    │  ├─ bouncing_dot.py
    │  ├─ life.py
    │  └─ pendulum.py
-   ├─ hw/
-   │  ├─ formats.py           # Protocol encoder (panel msgs + flush)
+   ├─ hardware/
+   │  ├─ protocol/
+   │  │  ├─ spec.py           # Protocol enums + command map
+   │  │  └─ formats.py        # Encoder (panel msgs + flush)
    │  ├─ panel_map.py         # Slice canvas to per-panel bitmaps
-   │  └─ PROTOCOL.md          # Protocol reference
+   │  └─ transport/
+   │     └─ serial.py         # Serial transports (hardware/mock)
    ├─ gfx/
    │  └─ dither.py            # Ordered Bayer, error diffusion, threshold
    └─ tests/
@@ -119,11 +121,11 @@ flip-disc/
 ```mermaid
 sequenceDiagram
     autonumber
-    participant API as FastAPI
-    participant WM as WorkerManager
+    participant API as ApiServer
+    participant WM as WorkerPool
     participant W as Worker (proc)
-    participant HW as HardwareTask
-    participant SP as SerialPort
+    participant HW as DisplayPacer
+    participant SP as SerialTransport
     participant P as Panels
 
     API->>WM: POST /anim/{name}

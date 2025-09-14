@@ -6,7 +6,7 @@ from typing import Any
 
 import numpy as np
 
-from ..exceptions import AnimationError
+from ..core.exceptions import AnimationError
 
 
 class Animation(ABC):

@@ -2,7 +2,7 @@
 
 import numpy as np
 
-from ..exceptions import FrameError
+from ..core.exceptions import FrameError
 
 
 def ordered_bayer(gray_image: np.ndarray, threshold_matrix_size: int = 2) -> np.ndarray:

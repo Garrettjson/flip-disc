@@ -21,4 +21,3 @@ class Frame:
     produced_ts: float
     target_ts: float | None
     bits: np.ndarray
-

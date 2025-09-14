@@ -9,8 +9,9 @@ for a 7-pixel-tall column: bit0=top pixel, bit6=bottom pixel, bit7 must be 0.
 """
 
 import numpy as np
-from .constants import START_BYTE, END_BYTE, PANEL_HEIGHT, Command
-from .spec import DataBytes, Refresh, data_bytes_from_panel_size, get_protocol_config
+
+from .constants import END_BYTE, PANEL_HEIGHT, START_BYTE, Command
+from .spec import Refresh, data_bytes_from_panel_size, get_protocol_config
 
 
 def _cmd_for_panel_width(panel_w: int, refresh: bool) -> int:

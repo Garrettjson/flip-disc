@@ -1,6 +1,6 @@
 import numpy as np
 
-from flipdisc.hw.formats import encode_panel_message, panel_bits_to_column_bytes
+from flipdisc.hardware.formats import encode_panel_message, panel_bits_to_column_bytes
 
 
 def test_panel_bits_to_column_bytes_basic():
@@ -23,4 +23,3 @@ def test_encode_panel_message_cmds():
         assert msg[-1] == 0x8F
         # Data length should equal width
         assert len(msg) == 1 + 1 + 1 + w + 1
-

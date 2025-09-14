@@ -6,31 +6,29 @@ with a small facade bound to a DisplayConfig for convenient encoding.
 
 from __future__ import annotations
 
-from typing import Iterable
+from collections.abc import Iterable
 
 import numpy as np
 
 from ..config import DisplayConfig
 from .formats import (
     encode_flush as _encode_flush,
+)
+from .formats import (
     encode_panel_message as _encode_panel_message,
+)
+from .formats import (
     panel_bits_to_column_bytes as _panel_bits_to_column_bytes,
 )
 from .spec import (
-    DataBytes,
-    Refresh,
-    ProtocolConfig,
-    PROTOCOL_MAP,
     data_bytes_from_panel_size,
-    get_protocol_config,
     supports_buffered_refresh,
 )
-
 
 # Mapping and helpers imported from spec.py
 
 
-class Protocol:
+class ProtocolEncoder:
     """High-level encoder bound to a DisplayConfig."""
 
     def __init__(self, cfg: DisplayConfig):
