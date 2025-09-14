@@ -262,13 +262,11 @@ class WorkerManager:
                     if response:
                         if response.success and (response.frame is not None):
                             # Wrap into Frame with metadata and enqueue
+                            loop = asyncio.get_running_loop()
                             self._seq += 1
-                            produced_ts = None
-                            if response.info and "produced_ts" in response.info:
-                                produced_ts = float(response.info["produced_ts"])  # type: ignore[assignment]
                             frame = Frame(
                                 seq=self._seq,
-                                produced_ts=produced_ts or time.time(),
+                                produced_ts=loop.time(),
                                 target_ts=None,
                                 bits=response.frame,
                             )
@@ -278,6 +276,7 @@ class WorkerManager:
                                 frames_collected += 1
                             else:
                                 logger.warning("Hardware buffer full, frame dropped")
+                                self.frames_dropped += 1
                         elif not response.success:
                             logger.error(
                                 f"Worker {worker.worker_id} error: {response.error}"
@@ -369,6 +368,7 @@ class WorkerManager:
             "alive_workers": alive_workers,
             "healthy_workers": healthy_workers,
             "total_frames_collected": self.total_frames_collected,
+            "frames_dropped": self.frames_dropped,
             "worker_errors": self.worker_errors,
             "workers": worker_stats,
         }

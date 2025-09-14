@@ -33,7 +33,7 @@ def create_test_pattern(
     return pixels
 
 
-async def test_hardware_basic():
+async def _async_test_hardware_basic():
     config = DisplayConfig()
     hardware = HardwareTask(config)
 
@@ -44,12 +44,10 @@ async def test_hardware_basic():
     assert status["running"] is True
     assert status["connected"] is True
 
-    seq = 0
-    for pattern in ["checkerboard", "border", "solid", "clear"]:
+    for seq, pattern in enumerate(["checkerboard", "border", "solid", "clear"], start=1):
         bits = create_test_pattern(config.width, config.height, pattern)
         assert bits.shape == (config.height, config.width)
         assert bits.dtype == bool
-        seq += 1
         success = await hardware.display_frame(
             Frame(seq=seq, produced_ts=0.0, target_ts=None, bits=bits)
         )
@@ -61,7 +59,7 @@ async def test_hardware_basic():
     # No prints; rely on assertions
 
 
-async def test_anims_direct():
+async def _async_test_anims_direct():
     config = DisplayConfig(width=28, height=14)
     names = list_animations()
     assert len(names) > 0
@@ -79,7 +77,7 @@ async def test_anims_direct():
     # No prints
 
 
-async def test_worker_integration():
+async def _async_test_worker_integration():
     config = DisplayConfig()
     hardware = HardwareTask(config)
     manager = WorkerManager(config, hardware_task=hardware, num_workers=1)
@@ -100,12 +98,13 @@ async def test_worker_integration():
     # No prints
 
 
-async def main():
-    await test_hardware_basic()
-    await test_anims_direct()
-    await test_worker_integration()
-    # No prints
+def test_hardware_basic():
+    asyncio.run(_async_test_hardware_basic())
 
 
-if __name__ == "__main__":
-    asyncio.run(main())
+def test_anims_direct():
+    asyncio.run(_async_test_anims_direct())
+
+
+def test_worker_integration():
+    asyncio.run(_async_test_worker_integration())

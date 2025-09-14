@@ -150,11 +150,30 @@ class APITask:
         # Alias endpoint: singular form
         @self.app.post("/anim/{name}")
         async def start_animation_alias(name: str):
-            return await start_animation(name)
+            if not self.hardware_task.running:
+                raise HTTPException(400, "Hardware not running")
+            try:
+                await self.worker_manager.set_animation(name)
+                return {"message": f"Started animation: {name}"}
+            except AnimationError as e:
+                logger.error(f"Animation error: {e}")
+                raise HTTPException(400, str(e)) from e
+            except Exception as e:
+                logger.error(f"Unexpected error starting animation: {e}")
+                raise HTTPException(500, f"Failed to start animation: {e}") from e
 
         @self.app.get("/fps")
         async def get_fps():
             return {"refresh_rate": self.config.refresh_rate}
+
+        @self.app.post("/fps")
+        async def set_fps(new_fps: float):
+            try:
+                await self.hardware_task.set_refresh_rate(new_fps)
+                return {"message": "Refresh rate updated", "refresh_rate": new_fps}
+            except Exception as e:
+                logger.error(f"Error setting refresh rate: {e}")
+                raise HTTPException(400, f"Failed to set refresh rate: {e}") from e
 
         @self.app.post("/serial/reconnect")
         async def serial_reconnect():

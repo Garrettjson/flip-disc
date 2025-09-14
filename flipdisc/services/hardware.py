@@ -1,8 +1,8 @@
 """Hardware task - manages display timing and serial communication."""
 
 import asyncio
+import contextlib
 import logging
-import time
 from collections.abc import Callable
 
 import numpy as np
@@ -10,7 +10,7 @@ import numpy as np
 from ..config import DisplayConfig
 from ..core.types import Frame
 from ..exceptions import FrameError, HardwareError
-from ..hw.formats import encode_panel_message
+from ..hw.formats import encode_flush, encode_panel_message
 from ..hw.panel_map import split_canvas_bits_to_panels
 from ..serial_port import SerialPort, create_serial_port
 
@@ -26,8 +26,6 @@ class FrameBuffer:
             max_size = int(config.refresh_rate * config.buffer_duration)
         self.max_size = max_size
         self.frames: asyncio.Queue[Frame] = asyncio.Queue(maxsize=max_size)
-        self.credits = max_size  # Available credits for frame production
-        self.credits_lock = asyncio.Lock()
         self.enqueued = 0
         self.dropped = 0
 
@@ -59,33 +57,17 @@ class FrameBuffer:
     async def get_frame(self) -> Frame | None:
         """Get next frame from buffer."""
         try:
-            frame = await asyncio.wait_for(self.frames.get(), timeout=0.1)
-            # Return a credit when we consume a frame
-            async with self.credits_lock:
-                self.credits = min(self.credits + 1, self.max_size)
-            return frame
+            return await asyncio.wait_for(self.frames.get(), timeout=0.1)
         except TimeoutError:
             return None
 
-    async def get_credits(self) -> int:
-        """Get available credits for frame production."""
-        async with self.credits_lock:
-            return self.credits
-
-    async def consume_credit(self) -> bool:
-        """Consume a credit for frame production."""
-        async with self.credits_lock:
-            if self.credits > 0:
-                self.credits -= 1
-                return True
-            return False
+    # Credits are derived from free slots; explicit counters removed.
 
     def get_status(self) -> dict:
         """Get buffer status information."""
         return {
             "size": self.frames.qsize(),
             "max_size": self.max_size,
-            "credits": self.credits,
             "enqueued": self.enqueued,
             "dropped": self.dropped,
             "utilization": self.frames.qsize() / self.max_size,
@@ -107,6 +89,8 @@ class HardwareTask:
         self.buffer = FrameBuffer(config)
         self.running = False
         self.frame_interval = 1.0 / config.refresh_rate
+        self._presented = 0
+        self._lock = asyncio.Lock()
 
         # Credit callback for WorkerManager
         # Callback invoked to request N credits be issued to workers
@@ -123,9 +107,10 @@ class HardwareTask:
             self.running = True
             logger.info(f"Hardware task started at {self.config.refresh_rate}fps")
 
+            loop = asyncio.get_running_loop()
             # Main display loop
             while self.running:
-                start_time = time.monotonic()
+                start_time = loop.time()
 
                 # Get next frame from buffer (at most one per tick)
                 frame_obj = await self.buffer.get_frame()
@@ -134,11 +119,23 @@ class HardwareTask:
                         # Segmented write: split by panels, encode per-protocol, then flush
                         panel_bits_list = split_canvas_bits_to_panels(frame_obj.bits, self.config)
                         addr_base = getattr(self.config, "address_base", 1)
+                        is_all_7x7 = (
+                            self.config.panel_w == 7 and self.config.panel_h == 7
+                        )
+                        # Batch encode messages
+                        msgs: list[bytes] = []
                         for idx, panel_bits in enumerate(panel_bits_list):
                             address = addr_base + idx
-                            msg = encode_panel_message(panel_bits, address, refresh=False)
-                            await self.serial_port.write_frame(msg)
-                        await self.serial_port.write_flush()
+                            msg = encode_panel_message(
+                                panel_bits, address, refresh=is_all_7x7
+                            )
+                            msgs.append(msg)
+                        # Append flush for buffered modes (non-7x7)
+                        batch = b"".join(msgs)
+                        if not is_all_7x7:
+                            # Send a packed flush at the end
+                            batch += encode_flush()
+                        await self.serial_port.write_frame(batch)
                     except Exception as e:
                         logger.error(f"Failed to write frame: {e}")
                         # Continue running even if individual frame fails
@@ -153,13 +150,22 @@ class HardwareTask:
                         logger.error(f"Credit callback error: {e}")
 
                 # Maintain frame rate
-                elapsed = time.monotonic() - start_time
+                # Latency logging every N frames
+                if frame_obj is not None:
+                    self._presented += 1
+                    if self._presented % 20 == 0 and frame_obj.produced_ts is not None:
+                        latency_ms = (loop.time() - frame_obj.produced_ts) * 1000.0
+                        logger.info(
+                            f"frame seq={frame_obj.seq} latency_ms={latency_ms:.1f} buffer={self.buffer.frames.qsize()}/{self.buffer.max_size}"
+                        )
+
+                elapsed = loop.time() - start_time
                 sleep_time = max(0, self.frame_interval - elapsed)
                 if sleep_time > 0:
                     await asyncio.sleep(sleep_time)
 
         except Exception as e:
-            logger.error(f"Hardware task failed: {e}")
+            # Propagate with context; caller decides severity and recovery.
             raise HardwareError(f"Hardware task failed: {e}") from e
         finally:
             self.running = False
@@ -175,26 +181,31 @@ class HardwareTask:
 
     async def reconnect_serial(self) -> None:
         """Reconnect the serial port (for API control)."""
-        try:
+        with contextlib.suppress(Exception):
             await self.serial_port.disconnect()
-        except Exception:
-            pass
         await self.serial_port.connect()
+
+    async def set_refresh_rate(self, refresh_rate: float) -> None:
+        """Atomically update refresh rate and ticker interval."""
+        if refresh_rate <= 0:
+            raise HardwareError("refresh_rate must be positive")
+        async with self._lock:
+            self.config.refresh_rate = refresh_rate
+            self.frame_interval = 1.0 / refresh_rate
 
     async def display_frame(self, frame: Frame):
         """Add frame to display buffer."""
         return await self.buffer.add_frame(frame)
-
-    async def get_credits(self) -> int:
-        """Get available credits for frame production."""
-        return await self.buffer.get_credits()
 
     def get_status(self) -> dict:
         """Get hardware task status."""
         return {
             "running": self.running,
             "connected": self.serial_port.is_connected(),
-            "buffer": self.buffer.get_status(),
+            "buffer": {
+                **self.buffer.get_status(),
+                "free": self.buffer.max_size - self.buffer.frames.qsize(),
+            },
             "config": {
                 "width": self.config.width,
                 "height": self.config.height,

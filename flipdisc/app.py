@@ -73,8 +73,8 @@ class FlipDiscApplication:
             # Run API server (this blocks)
             await self.api_task.start_server(host=host, port=port)
 
-        except Exception as e:
-            logger.error(f"Application startup failed: {e}")
+        except Exception:
+            # Caller (main) decides severity and logs with broader context.
             await self.stop()
             raise
 

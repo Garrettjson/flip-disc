@@ -30,7 +30,7 @@ def panel_bits_to_column_bytes(panel_bits: np.ndarray) -> bytes:
     - LSB=top pixel, bit7=0 per spec.
     - Returns W bytes; W in {7, 14, 28}.
     """
-    h, w = panel_bits.shape
+    h, _w = panel_bits.shape
     if h != 7:
         raise ValueError(f"Panel height must be 7, got {h}")
     # weights for rows y=0..6 become bit 1<<y
