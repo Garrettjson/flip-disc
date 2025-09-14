@@ -8,6 +8,7 @@ from collections.abc import Callable
 import numpy as np
 
 from ..config import DisplayConfig
+from ..core.types import Frame
 from ..exceptions import FrameError, HardwareError
 from ..hw.formats import encode_panel_message
 from ..hw.panel_map import split_canvas_bits_to_panels
@@ -24,36 +25,38 @@ class FrameBuffer:
         if max_size is None:
             max_size = int(config.refresh_rate * config.buffer_duration)
         self.max_size = max_size
-        self.frames = asyncio.Queue(maxsize=max_size)
+        self.frames: asyncio.Queue[Frame] = asyncio.Queue(maxsize=max_size)
         self.credits = max_size  # Available credits for frame production
         self.credits_lock = asyncio.Lock()
+        self.enqueued = 0
+        self.dropped = 0
 
-    async def add_frame(self, frame_data) -> bool:
-        """Add frame to buffer if space available.
-
-        Expects a 2D numpy array of dtype=bool with shape (height, width).
-        """
-        if not isinstance(frame_data, np.ndarray) or frame_data.dtype != bool or frame_data.ndim != 2:
-            raise FrameError(
-                f"Frame must be 2D numpy bool array, got type={type(frame_data)}"
-            )
-        h, w = frame_data.shape
+    async def add_frame(self, frame: Frame) -> bool:
+        """Add frame to buffer if space available."""
+        if not isinstance(frame, Frame):
+            raise FrameError(f"Expected Frame object, got {type(frame)}")
+        bits = frame.bits
+        if not isinstance(bits, np.ndarray) or bits.dtype != bool or bits.ndim != 2:
+            raise FrameError("Frame.bits must be 2D numpy bool array")
+        h, w = bits.shape
         if (h, w) != (self.config.height, self.config.width):
             raise FrameError(
                 f"Frame shape mismatch: expected {(self.config.height, self.config.width)}, got {(h, w)}"
             )
 
         try:
-            self.frames.put_nowait(frame_data)
+            self.frames.put_nowait(frame)
+            self.enqueued += 1
             logger.debug(
                 f"Added frame to buffer ({self.frames.qsize()}/{self.max_size})"
             )
             return True
         except asyncio.QueueFull:
             logger.warning("Frame buffer full, dropping frame")
+            self.dropped += 1
             return False
 
-    async def get_frame(self) -> bytes | None:
+    async def get_frame(self) -> Frame | None:
         """Get next frame from buffer."""
         try:
             frame = await asyncio.wait_for(self.frames.get(), timeout=0.1)
@@ -83,6 +86,8 @@ class FrameBuffer:
             "size": self.frames.qsize(),
             "max_size": self.max_size,
             "credits": self.credits,
+            "enqueued": self.enqueued,
+            "dropped": self.dropped,
             "utilization": self.frames.qsize() / self.max_size,
         }
 
@@ -104,9 +109,10 @@ class HardwareTask:
         self.frame_interval = 1.0 / config.refresh_rate
 
         # Credit callback for WorkerManager
-        self.credit_callback: Callable[[], None] | None = None
+        # Callback invoked to request N credits be issued to workers
+        self.credit_callback: Callable[[int], None] | None = None
 
-    def set_credit_callback(self, callback: Callable[[], None]):
+    def set_credit_callback(self, callback: Callable[[int], None]):
         """Set callback to be called when credits are available."""
         self.credit_callback = callback
 
@@ -121,12 +127,12 @@ class HardwareTask:
             while self.running:
                 start_time = time.monotonic()
 
-                # Get next frame from buffer
-                frame_data = await self.buffer.get_frame()
-                if frame_data:
+                # Get next frame from buffer (at most one per tick)
+                frame_obj = await self.buffer.get_frame()
+                if frame_obj:
                     try:
                         # Segmented write: split by panels, encode per-protocol, then flush
-                        panel_bits_list = split_canvas_bits_to_panels(frame_data, self.config)
+                        panel_bits_list = split_canvas_bits_to_panels(frame_obj.bits, self.config)
                         addr_base = getattr(self.config, "address_base", 1)
                         for idx, panel_bits in enumerate(panel_bits_list):
                             address = addr_base + idx
@@ -137,12 +143,14 @@ class HardwareTask:
                         logger.error(f"Failed to write frame: {e}")
                         # Continue running even if individual frame fails
 
-                    # Notify that a credit is available
-                    if self.credit_callback:
-                        try:
-                            self.credit_callback()
-                        except Exception as e:
-                            logger.error(f"Credit callback error: {e}")
+                # After draining (or not), compute free slots and issue credits to keep buffer topped
+                if self.credit_callback:
+                    try:
+                        free = self.buffer.max_size - self.buffer.frames.qsize()
+                        if free > 0:
+                            self.credit_callback(free)
+                    except Exception as e:
+                        logger.error(f"Credit callback error: {e}")
 
                 # Maintain frame rate
                 elapsed = time.monotonic() - start_time
@@ -165,9 +173,17 @@ class HardwareTask:
             logger.error(f"Error disconnecting serial port: {e}")
         logger.info("Hardware task stopped")
 
-    async def display_frame(self, frame_data):
+    async def reconnect_serial(self) -> None:
+        """Reconnect the serial port (for API control)."""
+        try:
+            await self.serial_port.disconnect()
+        except Exception:
+            pass
+        await self.serial_port.connect()
+
+    async def display_frame(self, frame: Frame):
         """Add frame to display buffer."""
-        return await self.buffer.add_frame(frame_data)
+        return await self.buffer.add_frame(frame)
 
     async def get_credits(self) -> int:
         """Get available credits for frame production."""

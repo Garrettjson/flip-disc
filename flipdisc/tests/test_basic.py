@@ -7,6 +7,7 @@ import numpy as np
 
 from flipdisc.anims import get_animation, list_animations
 from flipdisc.config import DisplayConfig
+from flipdisc.core.types import Frame
 from flipdisc.services.hardware import HardwareTask
 from flipdisc.services.worker_manager import WorkerManager
 
@@ -43,11 +44,15 @@ async def test_hardware_basic():
     assert status["running"] is True
     assert status["connected"] is True
 
+    seq = 0
     for pattern in ["checkerboard", "border", "solid", "clear"]:
-        frame_bits = create_test_pattern(config.width, config.height, pattern)
-        assert frame_bits.shape == (config.height, config.width)
-        assert frame_bits.dtype == bool
-        success = await hardware.display_frame(frame_bits)
+        bits = create_test_pattern(config.width, config.height, pattern)
+        assert bits.shape == (config.height, config.width)
+        assert bits.dtype == bool
+        seq += 1
+        success = await hardware.display_frame(
+            Frame(seq=seq, produced_ts=0.0, target_ts=None, bits=bits)
+        )
         assert success is True
         await asyncio.sleep(0.1)
 

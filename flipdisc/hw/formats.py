@@ -25,23 +25,19 @@ def _cmd_for_panel_width(panel_w: int, refresh: bool) -> int:
 
 
 def panel_bits_to_column_bytes(panel_bits: np.ndarray) -> bytes:
-    """Pack panel boolean image (H=7, W in {7,14,28}) to column bytes.
+    """Pack panel boolean image (H=7) to column bytes (vectorized).
 
-    LSB=top pixel, bit7=0 per spec. Returns W bytes.
+    - LSB=top pixel, bit7=0 per spec.
+    - Returns W bytes; W in {7, 14, 28}.
     """
     h, w = panel_bits.shape
     if h != 7:
         raise ValueError(f"Panel height must be 7, got {h}")
-    out = bytearray()
-    for x in range(w):
-        b = 0
-        col = panel_bits[:, x]
-        # Pack top (y=0) into bit0 .. y=6 into bit6
-        for y in range(min(7, h)):
-            if bool(col[y]):
-                b |= (1 << y)
-        out.append(b & 0x7F)
-    return bytes(out)
+    # weights for rows y=0..6 become bit 1<<y
+    weights = (1 << np.arange(7, dtype=np.uint8)).reshape(7, 1)
+    # Broadcast multiply booleans by weights and sum per column
+    vals = (panel_bits.astype(np.uint8) * weights).sum(axis=0) & 0x7F
+    return vals.tobytes()
 
 
 def encode_panel_message(panel_bits: np.ndarray, address: int, refresh: bool = False) -> bytes:

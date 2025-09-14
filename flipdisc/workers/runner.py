@@ -130,6 +130,7 @@ class Worker:
                 frame=binary_frame,
                 info={
                     "frames_generated": self.frames_generated,
+                    "produced_ts": time.time(),
                     "animation": self.current_animation.get_info(),
                 },
             )

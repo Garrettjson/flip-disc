@@ -8,6 +8,7 @@ Wires together HardwareTask, WorkerManager, and APITask according to the outline
 import argparse
 import asyncio
 import logging
+import multiprocessing as mp
 import signal
 import sys
 
@@ -123,6 +124,8 @@ async def main():
     signal.signal(signal.SIGTERM, signal_handler)
 
     try:
+        # Ensure consistent semantics across platforms
+        mp.set_start_method("spawn", force=True)
         await app.start(
             config_path=args.config,
             num_workers=args.workers,

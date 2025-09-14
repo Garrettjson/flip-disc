@@ -147,3 +147,20 @@ class APITask:
 
         logger.info(f"Starting API server on {host}:{port}")
         await server.serve()
+        # Alias endpoint: singular form
+        @self.app.post("/anim/{name}")
+        async def start_animation_alias(name: str):
+            return await start_animation(name)
+
+        @self.app.get("/fps")
+        async def get_fps():
+            return {"refresh_rate": self.config.refresh_rate}
+
+        @self.app.post("/serial/reconnect")
+        async def serial_reconnect():
+            try:
+                await self.hardware_task.reconnect_serial()
+                return {"message": "Serial reconnected"}
+            except Exception as e:
+                logger.error(f"Error reconnecting serial: {e}")
+                raise HTTPException(500, f"Failed to reconnect serial: {e}") from e

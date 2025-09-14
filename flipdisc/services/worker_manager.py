@@ -10,6 +10,7 @@ from typing import Any
 
 from ..anims import list_animations
 from ..config import DisplayConfig
+from ..core.types import Frame
 from ..workers.ipc import (
     Command,
     ConfigureCommand,
@@ -188,7 +189,8 @@ class WorkerManager:
             self.workers.append(worker)
 
         # Set up credit callback
-        hardware_task.set_credit_callback(self._on_credit_available)
+        hardware_task.set_credit_callback(self._on_credits_available)
+        self._seq = 0
 
     async def start(self):
         """Start all workers and frame collection."""
@@ -232,16 +234,14 @@ class WorkerManager:
 
         logger.info("WorkerManager stopped")
 
-    def _on_credit_available(self):
-        """Called by HardwareTask when a credit becomes available."""
-        # Round-robin credit distribution
-        worker = self.workers[self.current_worker_index]
-        self.current_worker_index = (self.current_worker_index + 1) % len(self.workers)
-
-        # Send credit command
-        credit_cmd = CreditCommand()
-        if not worker.send_command(credit_cmd):
-            logger.warning(f"Failed to send credit to worker {worker.worker_id}")
+    def _on_credits_available(self, count: int):
+        """Called by HardwareTask when N credits should be issued."""
+        for _ in range(max(0, int(count))):
+            worker = self.workers[self.current_worker_index]
+            self.current_worker_index = (self.current_worker_index + 1) % len(self.workers)
+            credit_cmd = CreditCommand()
+            if not worker.send_command(credit_cmd):
+                logger.warning(f"Failed to send credit to worker {worker.worker_id}")
 
     async def _frame_collection_loop(self):
         """Collect frames from workers and send to hardware."""
@@ -261,10 +261,18 @@ class WorkerManager:
                     response = worker.get_response(timeout=0.01)
                     if response:
                         if response.success and (response.frame is not None):
-                            # Send frame to hardware
-                            success = await self.hardware_task.display_frame(
-                                response.frame
+                            # Wrap into Frame with metadata and enqueue
+                            self._seq += 1
+                            produced_ts = None
+                            if response.info and "produced_ts" in response.info:
+                                produced_ts = float(response.info["produced_ts"])  # type: ignore[assignment]
+                            frame = Frame(
+                                seq=self._seq,
+                                produced_ts=produced_ts or time.time(),
+                                target_ts=None,
+                                bits=response.frame,
                             )
+                            success = await self.hardware_task.display_frame(frame)
                             if success:
                                 self.total_frames_collected += 1
                                 frames_collected += 1
