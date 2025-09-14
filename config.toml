@@ -1,8 +1,8 @@
 [display]
-# Panel configuration - sizes are (width x height)
-panel_type = "28x7"  # "7x7", "14x7", or "28x7"
-columns = 4  # Number of panels horizontally
-rows = 2  # Number of panels vertically
+# Panel configuration - default canvas 28x28 using 14x7 panels (2x4 grid)
+panel_type = "14x7"  # "7x7", "14x7", or "28x7"
+columns = 2  # Number of panels horizontally (14*2 = 28)
+rows = 4  # Number of panels vertically (7*4 = 28)
 refresh_rate = 20.0  # Target FPS
 buffer_duration = 0.5  # Frame buffer duration in seconds
 

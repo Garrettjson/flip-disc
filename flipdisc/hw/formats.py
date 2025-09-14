@@ -8,46 +8,44 @@ Data for panel frames: width bytes, one per column. Each byte packs 7 bits
 for a 7-pixel-tall column: bit0=top pixel, bit6=bottom pixel, bit7 must be 0.
 """
 
-
 import numpy as np
+from .constants import START_BYTE, END_BYTE, PANEL_HEIGHT, Command
+from .spec import DataBytes, Refresh, data_bytes_from_panel_size, get_protocol_config
 
 
 def _cmd_for_panel_width(panel_w: int, refresh: bool) -> int:
-    """Return command byte for given panel width and refresh mode."""
-    if panel_w == 28:
-        return 0x83 if refresh else 0x84
-    if panel_w == 14:
-        return 0x92 if refresh else 0x93
-    if panel_w == 7:
-        # NO (buffered) not supported by 7x7 per spec; force refresh
-        return 0x87
-    raise ValueError(f"Unsupported panel width: {panel_w}")
+    """Return command byte using the protocol mapping (no magic numbers)."""
+    data_bytes = data_bytes_from_panel_size(panel_w, PANEL_HEIGHT)
+    mode = Refresh.INSTANT if refresh else Refresh.BUFFER
+    return get_protocol_config(data_bytes, mode).command_byte
 
 
 def panel_bits_to_column_bytes(panel_bits: np.ndarray) -> bytes:
-    """Pack panel boolean image (H=7) to column bytes (vectorized).
+    """Pack panel boolean image (H=7) to column bytes using NumPy packbits.
 
     - LSB=top pixel, bit7=0 per spec.
     - Returns W bytes; W in {7, 14, 28}.
     """
-    h, _w = panel_bits.shape
-    if h != 7:
-        raise ValueError(f"Panel height must be 7, got {h}")
-    # weights for rows y=0..6 become bit 1<<y
-    weights = (1 << np.arange(7, dtype=np.uint8)).reshape(7, 1)
-    # Broadcast multiply booleans by weights and sum per column
-    vals = (panel_bits.astype(np.uint8) * weights).sum(axis=0) & 0x7F
-    return vals.tobytes()
+    h, _ = panel_bits.shape
+    if h != PANEL_HEIGHT:
+        raise ValueError(f"Panel height must be {PANEL_HEIGHT}, got {h}")
+    # Pack along the row axis so each column becomes one byte.
+    # bitorder='little' ensures first bit (top pixel y=0) maps to LSB (bit0).
+    packed = np.packbits(panel_bits.astype(np.uint8), axis=0, bitorder="little")
+    # Shape is (1, w); flatten to (w,) and return bytes. Bit7 is zero due to 7 inputs.
+    return packed.reshape(-1).tobytes()
 
 
-def encode_panel_message(panel_bits: np.ndarray, address: int, refresh: bool = False) -> bytes:
+def encode_panel_message(
+    panel_bits: np.ndarray, address: int, refresh: bool = False
+) -> bytes:
     """Encode a single panel message with given device address."""
-    _h, w = panel_bits.shape
+    _, w = panel_bits.shape
     cmd = _cmd_for_panel_width(w, refresh)
     payload = panel_bits_to_column_bytes(panel_bits)
-    return bytes([0x80, cmd, address]) + payload + bytes([0x8F])
+    return bytes([START_BYTE, cmd, address]) + payload + bytes([END_BYTE])
 
 
 def encode_flush() -> bytes:
     """Encode a broadcast flush frame."""
-    return bytes([0x80, 0x82, 0x8F])
+    return bytes([START_BYTE, int(Command.FLUSH), END_BYTE])

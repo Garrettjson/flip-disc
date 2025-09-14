@@ -1,0 +1,404 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Flip Disc Orchestrator</title>
+    <link rel="stylesheet" href="/static/styles.css">
+</head>
+<body>
+    <div class="header">
+        <h1>🎮 Flip Disc Orchestrator</h1>
+        <p>Control panel for flip disc display animations</p>
+    </div>
+    
+    <div class="status-grid">
+        <div class="status-card">
+            <h3>Connection Status</h3>
+            <div id="server-status">
+                <span class="status-indicator status-disconnected" id="server-indicator"></span>
+                <span id="server-text">Connecting to server...</span>
+            </div>
+            <div id="orchestrator-status" style="margin-top: 10px;">
+                <span class="status-indicator status-disconnected" id="orchestrator-indicator"></span>
+                <span id="orchestrator-text">WebSocket disconnected</span>
+            </div>
+        </div>
+        
+        <div class="status-card">
+            <h3>Animation Status</h3>
+            <div>
+                <strong>Running:</strong> <span id="animation-running">No</span>
+            </div>
+            <div>
+                <strong>Credits:</strong> <span id="credits-count">-</span>
+            </div>
+            <div>
+                <strong>FPS:</strong> <span id="fps-display">-</span>
+            </div>
+            <div>
+                <strong>Frames:</strong> <span id="frame-count">-</span>
+            </div>
+        </div>
+    </div>
+    
+    <div class="controls-grid">
+        <div class="controls status-card">
+            <h3>Animation Controls</h3>
+            <label for="animation-select"><strong>Animation:</strong></label>
+            <select id="animation-select" style="min-width:220px;"></select>
+            <button class="button" id="start-animation" onclick="startSelectedAnimation()">Start Animation</button>
+            <button class="button danger" id="stop-animation" onclick="stopAnimation()" disabled>
+                Stop Animation
+            </button>
+            <button class="button" onclick="getStatus()">
+                Refresh Status
+            </button>
+            <div id="animation-config" style="margin-top:12px;"></div>
+            <div style="margin-top:12px;">
+                <label for="fps-input"><strong>Target FPS:</strong></label>
+                <input id="fps-input" type="number" min="1" max="60" step="1" value="30" style="width:80px;">
+                <button class="button" onclick="setFps()">Set FPS</button>
+            </div>
+        </div>
+
+        <div class="status-card">
+            <h3>Frame Preview</h3>
+            <canvas id="preview" class="preview-canvas" width="280" height="280"></canvas>
+        </div>
+    </div>
+    
+    <div id="display-info" class="status-card" style="display: none;">
+        <h3>Display Configuration</h3>
+        <div>
+            <strong>Canvas:</strong> <span id="canvas-size">-</span>
+        </div>
+        <div>
+            <strong>Panels:</strong> <span id="panel-count">-</span>
+        </div>
+        <div>
+            <strong>Refresh Rate:</strong> <span id="refresh-rate">-</span> FPS
+        </div>
+    </div>
+    
+    <div class="log" id="log">
+        <div class="log-entry log-info">
+            <span class="log-timestamp">[--:--:--]</span>
+            Flip Disc Orchestrator UI loaded
+        </div>
+    </div>
+
+    <script>
+        // Global state
+        let ws = null;
+        let isConnected = false;
+        let animationRunning = false;
+        let targetFps = null; // server target FPS (policy)
+        let lastEffectiveFps = null; // effective FPS from server status
+        
+        // UI elements
+        const serverIndicator = document.getElementById('server-indicator');
+        const serverText = document.getElementById('server-text');
+        const orchestratorIndicator = document.getElementById('orchestrator-indicator');
+        const orchestratorText = document.getElementById('orchestrator-text');
+        const animationRunningSpan = document.getElementById('animation-running');
+        const creditsCount = document.getElementById('credits-count');
+        const fpsDisplay = document.getElementById('fps-display');
+        const frameCount = document.getElementById('frame-count');
+        const logDiv = document.getElementById('log');
+        
+        function updateFpsReadout(value) {
+            const eff = (value !== null && value !== undefined) ? value : '-';
+            if (targetFps !== null) {
+                fpsDisplay.textContent = `${eff} (target ${targetFps})`;
+            } else {
+                fpsDisplay.textContent = `${eff}`;
+            }
+        }
+
+        // Connect to orchestrator WebSocket
+        function connect() {
+            const wsUrl = `ws://${window.location.host}/ws`;
+            ws = new WebSocket(wsUrl);
+            
+            ws.onopen = () => {
+                isConnected = true;
+                updateConnectionStatus();
+                addLogEntry('Connected to orchestrator', 'success');
+                
+                // Request initial status
+                getStatus();
+            };
+            
+            ws.onmessage = (event) => {
+                const message = JSON.parse(event.data);
+                handleWebSocketMessage(message);
+            };
+            
+            ws.onclose = () => {
+                isConnected = false;
+                updateConnectionStatus();
+                addLogEntry('Disconnected from orchestrator', 'warning');
+                
+                // Attempt reconnection after 2 seconds
+                setTimeout(connect, 2000);
+            };
+            
+            ws.onerror = (error) => {
+                addLogEntry('WebSocket error: ' + error, 'error');
+            };
+        }
+        
+        function handleWebSocketMessage(message) {
+            switch (message.type) {
+                case 'connected':
+                    if (message.data.display_info) {
+                        updateDisplayInfo(message.data.display_info);
+                    }
+                    animationRunning = message.data.running;
+                    updateAnimationStatus();
+                    break;
+                    
+                case 'credits_updated':
+                    creditsCount.textContent = message.data.credits;
+                    addLogEntry(`Credits updated: ${message.data.credits}`, 'info');
+                    break;
+                    
+                case 'server_status':
+                    lastEffectiveFps = message.data.fps_actual;
+                    updateFpsReadout(lastEffectiveFps.toFixed(1));
+                    break;
+                    
+                case 'frame_preview':
+                    frameCount.textContent = message.data.frame_id;
+                    renderPreview(message.data);
+                    break;
+                    
+                case 'server_error':
+                    addLogEntry(`Server error: ${message.data.message}`, 'error');
+                    break;
+                    
+                case 'status':
+                    updateStatus(message.data);
+                    break;
+            }
+        }
+        
+        function updateConnectionStatus() {
+            if (isConnected) {
+                orchestratorIndicator.className = 'status-indicator status-connected';
+                orchestratorText.textContent = 'Connected to orchestrator';
+            } else {
+                orchestratorIndicator.className = 'status-indicator status-disconnected';
+                orchestratorText.textContent = 'Disconnected from orchestrator';
+            }
+        }
+        
+        function updateAnimationStatus() {
+            animationRunningSpan.textContent = animationRunning ? 'Yes' : 'No';
+            
+            const startButton = document.getElementById('start-animation');
+            const stopButton = document.getElementById('stop-animation');
+            
+            startButton.disabled = animationRunning;
+            stopButton.disabled = !animationRunning;
+        }
+        
+        function updateDisplayInfo(displayInfo) {
+            document.getElementById('canvas-size').textContent = 
+                `${displayInfo.canvas_width} × ${displayInfo.canvas_height}`;
+            document.getElementById('panel-count').textContent = displayInfo.panel_count;
+            document.getElementById('refresh-rate').textContent = displayInfo.refresh_rate;
+            targetFps = displayInfo.refresh_rate;
+            updateFpsReadout(lastEffectiveFps !== null ? lastEffectiveFps.toFixed(1) : '-');
+            document.getElementById('display-info').style.display = 'block';
+        }
+        
+        function updateStatus(statusData) {
+            animationRunning = statusData.running;
+            updateAnimationStatus();
+            
+            if (statusData.server_connected) {
+                serverIndicator.className = 'status-indicator status-connected';
+                serverText.textContent = 'Connected to server';
+            } else {
+                serverIndicator.className = 'status-indicator status-disconnected';
+                serverText.textContent = 'Disconnected from server';
+            }
+            
+            if (statusData.scheduler_stats) {
+                creditsCount.textContent = statusData.scheduler_stats.credits;
+                lastEffectiveFps = statusData.scheduler_stats.average_fps;
+                updateFpsReadout(lastEffectiveFps.toFixed(1));
+            }
+        }
+        
+        function addLogEntry(message, type = 'info') {
+            const timestamp = new Date().toLocaleTimeString();
+            const entry = document.createElement('div');
+            entry.className = `log-entry log-${type}`;
+            entry.innerHTML = `<span class="log-timestamp">[${timestamp}]</span>${message}`;
+            
+            logDiv.appendChild(entry);
+            logDiv.scrollTop = logDiv.scrollHeight;
+            
+            // Keep only last 100 entries
+            while (logDiv.children.length > 100) {
+                logDiv.removeChild(logDiv.firstChild);
+            }
+        }
+        
+        function startSelectedAnimation() {
+            if (!isConnected) return;
+            const sel = document.getElementById('animation-select');
+            const workerPath = sel && sel.value ? sel.value : './src/workers/bouncing-dot-worker.ts';
+            const params = collectAnimationParams(workerPath);
+            ws.send(JSON.stringify({ type: 'start_animation', worker_path: workerPath, params }));
+            addLogEntry(`Starting animation: ${workerPath}`, 'info');
+            // Optimistically enable stop for UX; status will confirm
+            animationRunning = true;
+            updateAnimationStatus();
+        }
+        
+        function stopAnimation() {
+            if (!isConnected) return;
+            
+            ws.send(JSON.stringify({
+                type: 'stop_animation'
+            }));
+            
+            addLogEntry('Stopping animation', 'info');
+            // Optimistic UI update; status will confirm
+            animationRunning = false;
+            updateAnimationStatus();
+        }
+        
+        function getStatus() {
+            if (!isConnected) return;
+            
+            ws.send(JSON.stringify({
+                type: 'get_status'
+            }));
+        }
+        
+        async function setFps() {
+            const input = document.getElementById('fps-input');
+            const fps = parseFloat(input.value || '0');
+            if (!fps || fps <= 0) {
+                addLogEntry('Invalid FPS value', 'error');
+                return;
+            }
+            try {
+                const res = await fetch('/api/server/fps', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ target_fps: fps })
+                });
+                if (res.ok) {
+                    addLogEntry(`Target FPS set to ${fps}`, 'success');
+                    targetFps = fps;
+                    document.getElementById('refresh-rate').textContent = targetFps;
+                    updateFpsReadout(lastEffectiveFps !== null ? lastEffectiveFps.toFixed(1) : `${targetFps}`);
+                } else {
+                    const data = await res.json().catch(() => ({}));
+                    addLogEntry(`Failed to set FPS: ${data.detail || res.statusText}`, 'error');
+                }
+            } catch (e) {
+                addLogEntry('Error setting FPS: ' + e, 'error');
+            }
+        }
+
+        
+        
+        // Initialize
+        connect();
+        loadWorkers();
+
+        async function loadWorkers() {
+            try {
+                const res = await fetch('/api/workers');
+                const data = await res.json();
+                const sel = document.getElementById('animation-select');
+                if (!sel) return;
+                sel.innerHTML = '';
+                const workers = (data && data.workers) ? data.workers : [];
+                workers.sort((a,b)=>String(a.name||a.id).localeCompare(String(b.name||b.id)));
+                for (const w of workers) {
+                    const opt = document.createElement('option');
+                    opt.value = w.path;
+                    opt.textContent = w.name || w.id || w.path;
+                    sel.appendChild(opt);
+                }
+                sel.addEventListener('change', () => buildAnimationConfig(sel.value));
+                if (workers.length) buildAnimationConfig(workers[0].path);
+            } catch (e) {
+                addLogEntry('Failed to load workers: ' + e, 'error');
+            }
+        }
+
+        function buildAnimationConfig(workerPath) {
+            const cfg = document.getElementById('animation-config');
+            if (!cfg) return;
+            cfg.innerHTML = '';
+            if (workerPath.endsWith('text/text-scroll-worker.ts')) {
+                const textRow = document.createElement('div');
+                textRow.innerHTML = `<label><strong>Text:</strong></label> <input id="text-input" type="text" value="HELLO WORLD" style="width: 220px;">`;
+                const speedRow = document.createElement('div');
+                speedRow.style.marginTop = '8px';
+                speedRow.innerHTML = `<label><strong>Speed:</strong></label> <input id=\"speed-input\" type=\"number\" step=\"0.1\" value=\"1\" style=\"width: 80px;\">`;
+                cfg.appendChild(textRow);
+                cfg.appendChild(speedRow);
+            } else {
+                const note = document.createElement('div');
+                note.style.opacity = '0.7';
+                note.textContent = 'No additional options for this animation.';
+                cfg.appendChild(note);
+            }
+        }
+
+        function collectAnimationParams(workerPath) {
+            if (workerPath.endsWith('text/text-scroll-worker.ts')) {
+                const textEl = document.getElementById('text-input');
+                const speedEl = document.getElementById('speed-input');
+                const text = textEl ? textEl.value : 'HELLO WORLD';
+                const speed = speedEl ? parseFloat(speedEl.value) : 1;
+                return { text, speed: Number.isFinite(speed) ? speed : 1 };
+            }
+            return {};
+        }
+
+        // Basic frame preview renderer
+        function renderPreview(frame) {
+            try {
+                const c = document.getElementById('preview');
+                if (!c) return;
+                const ctx = c.getContext('2d');
+                if (!ctx || !Array.isArray(frame.data)) return;
+                const w = frame.width, h = frame.height;
+                const bytes = frame.data;
+                const stride = Math.ceil(w / 8);
+                // Resize canvas to match container width for crisp pixels
+                const desiredSize = Math.max(100, Math.floor(c.clientWidth));
+                if (desiredSize && (c.width !== desiredSize || c.height !== desiredSize)) {
+                    c.width = desiredSize;
+                    c.height = desiredSize;
+                }
+                const scale = Math.max(1, Math.floor(Math.min(c.width / w, c.height / h)));
+                ctx.clearRect(0, 0, c.width, c.height);
+                ctx.fillStyle = '#00ff66';
+                for (let y = 0; y < h; y++) {
+                    for (let x = 0; x < w; x++) {
+                        const byteIdx = y * stride + Math.floor(x / 8);
+                        const bitPos = 7 - (x % 8);
+                        if (((bytes[byteIdx] >> bitPos) & 1) === 1) {
+                            ctx.fillRect(x * scale, y * scale, scale, scale);
+                        }
+                    }
+                }
+            } catch (e) {
+                // ignore preview errors
+            }
+        }
+    </script>
+</body>
+</html>

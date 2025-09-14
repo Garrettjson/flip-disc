@@ -9,7 +9,7 @@ from queue import Empty
 
 import numpy as np
 
-from ..anims import Animation, get_animation, list_animations
+from ..animations import Animation, get_animation, list_animations
 from ..exceptions import AnimationError
 from ..gfx.dither import ordered_bayer
 from .ipc import (
@@ -195,11 +195,6 @@ class Worker:
                 for y in range(self.height):
                     for x in range(self.width):
                         frame[y, x] = (x + y) % 2
-            elif command.pattern == "border":
-                frame[0, :] = 1.0  # Top
-                frame[-1, :] = 1.0  # Bottom
-                frame[:, 0] = 1.0  # Left
-                frame[:, -1] = 1.0  # Right
             elif command.pattern == "solid":
                 frame[:, :] = 1.0
             # "clear" pattern is already all zeros

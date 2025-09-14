@@ -5,7 +5,7 @@ import asyncio
 
 import numpy as np
 
-from flipdisc.anims import get_animation, list_animations
+from flipdisc.animations import get_animation, list_animations
 from flipdisc.config import DisplayConfig
 from flipdisc.core.types import Frame
 from flipdisc.services.hardware import HardwareTask
@@ -20,13 +20,6 @@ def create_test_pattern(
         for y in range(height):
             for x in range(width):
                 pixels[y, x] = (x + y) % 2 == 0
-    elif pattern == "border":
-        if height > 1:
-            pixels[0, :] = True
-            pixels[-1, :] = True
-        if width > 1:
-            pixels[:, 0] = True
-            pixels[:, -1] = True
     elif pattern == "solid":
         pixels[:, :] = True
     # "clear" leaves pixels all False
@@ -44,7 +37,7 @@ async def _async_test_hardware_basic():
     assert status["running"] is True
     assert status["connected"] is True
 
-    for seq, pattern in enumerate(["checkerboard", "border", "solid", "clear"], start=1):
+    for seq, pattern in enumerate(["checkerboard", "solid", "clear"], start=1):
         bits = create_test_pattern(config.width, config.height, pattern)
         assert bits.shape == (config.height, config.width)
         assert bits.dtype == bool
@@ -59,7 +52,7 @@ async def _async_test_hardware_basic():
     # No prints; rely on assertions
 
 
-async def _async_test_anims_direct():
+async def _async_test_animations_direct():
     config = DisplayConfig(width=28, height=14)
     names = list_animations()
     assert len(names) > 0
@@ -102,8 +95,8 @@ def test_hardware_basic():
     asyncio.run(_async_test_hardware_basic())
 
 
-def test_anims_direct():
-    asyncio.run(_async_test_anims_direct())
+def test_animations_direct():
+    asyncio.run(_async_test_animations_direct())
 
 
 def test_worker_integration():

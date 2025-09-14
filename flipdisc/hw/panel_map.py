@@ -5,18 +5,26 @@ Assumptions:
 - Canvas frame is a boolean numpy array of shape (height, width).
 """
 
-
 import numpy as np
 
 from ..config import DisplayConfig
+from ..exceptions import FrameError
 
 
-def split_canvas_bits_to_panels(canvas_bits: np.ndarray, cfg: DisplayConfig) -> list[np.ndarray]:
-    """Split a canvas boolean image into per-panel boolean images.
+def split_canvas_bits_to_panels(
+    canvas_bits: np.ndarray, cfg: DisplayConfig
+) -> list[np.ndarray]:
+    """
+    Split a canvas boolean image into per-panel boolean images.
 
     Returns row-major list of arrays with shape (panel_h, panel_w).
     """
-    assert canvas_bits.shape == (cfg.height, cfg.width)
+    expected_shape = (cfg.height, cfg.width)
+    if canvas_bits.shape != expected_shape:
+        raise FrameError(
+            f"Canvas shape mismatch: expected {expected_shape}, got {canvas_bits.shape}"
+        )
+
     panels: list[np.ndarray] = []
     for pr in range(cfg.rows):
         y0 = pr * cfg.panel_h

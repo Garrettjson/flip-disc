@@ -8,9 +8,10 @@ import time
 from queue import Empty
 from typing import Any
 
-from ..anims import list_animations
+from ..animations import list_animations
 from ..config import DisplayConfig
 from ..core.types import Frame
+from .hardware import HardwareTask
 from ..workers.ipc import (
     Command,
     ConfigureCommand,
@@ -166,9 +167,11 @@ class WorkerManager:
     - Worker health monitoring
     """
 
-    def __init__(self, config: DisplayConfig, hardware_task, num_workers: int = 1):
+    def __init__(
+        self, config: DisplayConfig, hardware_task: HardwareTask, num_workers: int = 1
+    ):
         self.config = config
-        self.hardware_task = hardware_task
+        self.hardware_task: HardwareTask = hardware_task
         self.num_workers = num_workers
 
         # Worker processes
@@ -178,10 +181,12 @@ class WorkerManager:
         # Frame collection
         self.frame_collection_task: asyncio.Task | None = None
         self.running = False
+        self.playing = False  # Gate for issuing credits; user-controlled
 
         # Statistics
         self.total_frames_collected = 0
         self.worker_errors = 0
+        self.frames_dropped = 0
 
         # Initialize workers
         for i in range(num_workers):
@@ -204,16 +209,8 @@ class WorkerManager:
         self.running = True
         self.frame_collection_task = asyncio.create_task(self._frame_collection_loop())
 
-        # Seed initial credits to fill the hardware buffer once at startup
-        try:
-            initial_credits = getattr(
-                self.hardware_task.buffer, "max_size", self.num_workers
-            )
-            for _ in range(int(initial_credits)):
-                self._on_credit_available()
-            logger.info(f"Seeded {initial_credits} initial credits to workers")
-        except Exception as e:
-            logger.warning(f"Could not seed initial credits: {e}")
+        # Do not auto-seed credits; wait until user starts playback/animation
+        logger.info("WorkerManager started (idle; not playing)")
 
         logger.info("WorkerManager started")
 
@@ -221,6 +218,9 @@ class WorkerManager:
         """Stop all workers and frame collection."""
         logger.info("Stopping WorkerManager")
         self.running = False
+
+        with contextlib.suppress(Exception):
+            self.hardware_task.set_credit_callback(None)
 
         # Stop frame collection
         if self.frame_collection_task:
@@ -236,9 +236,13 @@ class WorkerManager:
 
     def _on_credits_available(self, count: int):
         """Called by HardwareTask when N credits should be issued."""
+        if not self.running or not self.playing:
+            return
         for _ in range(max(0, int(count))):
             worker = self.workers[self.current_worker_index]
-            self.current_worker_index = (self.current_worker_index + 1) % len(self.workers)
+            self.current_worker_index = (self.current_worker_index + 1) % len(
+                self.workers
+            )
             credit_cmd = CreditCommand()
             if not worker.send_command(credit_cmd):
                 logger.warning(f"Failed to send credit to worker {worker.worker_id}")
@@ -326,13 +330,15 @@ class WorkerManager:
         for worker in self.workers:
             worker.current_animation = name
 
-        logger.info(f"Set animation: {name}")
+        # Start playing upon selecting an animation
+        await self.play()
+        logger.info(f"Set animation and started: {name}")
 
-    async def configure_animation(self, name: str, params: dict[str, Any]):
-        """Configure current animation."""
+    async def configure_animation(self, params: dict[str, Any]):
+        """Configure the currently active animation on all workers."""
         command = ConfigureCommand(params=params)
         await self._send_to_all_workers(command)
-        logger.info(f"Configured animation {name}: {params}")
+        logger.info(f"Configured current animation: {params}")
 
     async def reset_animation(self, seed: int | None = None):
         """Reset current animation."""
@@ -352,6 +358,8 @@ class WorkerManager:
             await self._restart_worker(worker)
         logger.info("All workers restarted")
 
+    # Snapshot behavior intentionally omitted to keep semantics simple: start/stop only.
+
     async def list_animations(self) -> list[str]:
         """Get list of available animations."""
         return list_animations()
@@ -367,8 +375,30 @@ class WorkerManager:
             "num_workers": self.num_workers,
             "alive_workers": alive_workers,
             "healthy_workers": healthy_workers,
+            "playing": self.playing,
             "total_frames_collected": self.total_frames_collected,
             "frames_dropped": self.frames_dropped,
             "worker_errors": self.worker_errors,
             "workers": worker_stats,
         }
+
+    async def play(self):
+        """Enable frame generation (issue credits when available)."""
+        if not self.playing:
+            self.playing = True
+            # Seed initial credits to fill buffer quickly
+            try:
+                capacity = int(self.hardware_task.buffer.max_size)
+                current = int(self.hardware_task.buffer.frames.qsize())
+                credits_to_seed = max(0, capacity - current)
+            except (AttributeError, TypeError, ValueError):
+                credits_to_seed = self.num_workers
+            if credits_to_seed > 0:
+                self._on_credits_available(credits_to_seed)
+            logger.info("Playback started (seeded credits=%s)", credits_to_seed)
+
+    async def pause(self):
+        """Disable frame generation (stop issuing credits)."""
+        if self.playing:
+            self.playing = False
+            logger.info("Playback paused")

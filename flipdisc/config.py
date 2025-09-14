@@ -1,7 +1,7 @@
 """Configuration for flip-disc display."""
 
 import tomllib
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 from .exceptions import ConfigurationError
@@ -22,24 +22,22 @@ class DisplayConfig:
     """Display configuration with TOML support."""
 
     # Display dimensions
-    width: int = 112
-    height: int = 56
+    width: int = 28
+    height: int = 28
     refresh_rate: float = 20.0
     buffer_duration: float = 0.5
 
     # Serial configuration
-    serial: SerialConfig = None
+    serial: SerialConfig = field(default_factory=SerialConfig)
 
     # Panel grid configuration
-    panel_w: int = 28
+    panel_w: int = 14
     panel_h: int = 7
-    columns: int = 4
-    rows: int = 8
+    columns: int = 2
+    rows: int = 4
     address_base: int = 1
 
     def __post_init__(self):
-        if self.serial is None:
-            self.serial = SerialConfig()
 
         # Validation
         if self.width <= 0 or self.height <= 0:
@@ -110,9 +108,9 @@ def _parse_config(data: dict) -> DisplayConfig:
         serial_section = data.get("serial", {})
 
         # Handle panel-based configuration
-        panel_type = display_section.get("panel_type", "28x7")
-        columns = display_section.get("columns", 4)
-        rows = display_section.get("rows", 2)
+        panel_type = display_section.get("panel_type", "14x7")
+        columns = display_section.get("columns", 2)
+        rows = display_section.get("rows", 4)
 
         # Parse panel dimensions
         try:

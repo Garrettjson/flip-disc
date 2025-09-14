@@ -1,0 +1,56 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Flip-Disc Controller</title>
+  <link rel="stylesheet" href="/static/styles.css" />
+</head>
+<body>
+  <div class="header">
+    <h1>🎮 Flip-Disc Controller</h1>
+    <p>Control animations and preview frames</p>
+  </div>
+
+  <div class="status-grid">
+    <div class="status-card">
+      <h3>Status</h3>
+      <div><strong>Running:</strong> <span id="running">-</span></div>
+      <div><strong>Connected:</strong> <span id="connected">-</span></div>
+      <div><strong>FPS:</strong> <span id="fps">-</span></div>
+      <div><strong>Frames Presented:</strong> <span id="presented">-</span></div>
+    </div>
+
+    <div class="status-card">
+      <h3>Display</h3>
+      <div><strong>Size:</strong> <span id="size">-</span></div>
+      <div><strong>Buffer:</strong> <span id="buffer">-</span></div>
+    </div>
+  </div>
+
+  <div class="controls-grid">
+    <div class="controls status-card">
+      <h3>Controls</h3>
+      <div style="margin-bottom:8px;">
+        <label for="anim"><strong>Animation:</strong></label>
+        <select id="anim"></select>
+        <button class="button" id="start">Start</button>
+        <button class="button" id="stop">Stop</button>
+      </div>
+      <div>
+        <label for="fps-input"><strong>FPS:</strong></label>
+        <input id="fps-input" type="number" min="1" max="60" step="1" value="20" style="width:80px;" />
+        <button class="button" id="set-fps">Set FPS</button>
+        <button class="button" id="refresh">Refresh Status</button>
+      </div>
+    </div>
+
+    <div class="status-card">
+      <h3>Preview</h3>
+      <canvas id="preview" class="preview-canvas" width="280" height="280"></canvas>
+    </div>
+  </div>
+
+  <script src="/static/app.js"></script>
+</body>
+</html>

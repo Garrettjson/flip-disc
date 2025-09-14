@@ -28,6 +28,9 @@ class FlipDiscApplication:
         self.worker_manager = None
         self.api_task = None
         self.running = False
+        # Background task handles (set during runtime)
+        self._hardware_task: asyncio.Task | None = None
+        self._stop_task: asyncio.Task | None = None
 
     async def start(
         self,
@@ -64,8 +67,7 @@ class FlipDiscApplication:
             logger.info(f"Starting WorkerManager with {num_workers} workers...")
             await self.worker_manager.start()
 
-            # Set a default animation
-            await self.worker_manager.set_animation("bouncing_dot")
+            # Do not start any animation by default; user controls start/stop via API/UI
 
             logger.info("Starting API server...")
             self.running = True

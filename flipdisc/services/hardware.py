@@ -10,8 +10,8 @@ import numpy as np
 from ..config import DisplayConfig
 from ..core.types import Frame
 from ..exceptions import FrameError, HardwareError
-from ..hw.formats import encode_flush, encode_panel_message
 from ..hw.panel_map import split_canvas_bits_to_panels
+from ..hw.protocol import Protocol
 from ..serial_port import SerialPort, create_serial_port
 
 logger = logging.getLogger(__name__)
@@ -86,17 +86,19 @@ class HardwareTask:
     def __init__(self, config: DisplayConfig):
         self.config = config
         self.serial_port: SerialPort = create_serial_port(config.serial)
+        self.protocol = Protocol(config)
         self.buffer = FrameBuffer(config)
         self.running = False
         self.frame_interval = 1.0 / config.refresh_rate
         self._presented = 0
         self._lock = asyncio.Lock()
+        self._last_frame_bits: np.ndarray | None = None
 
         # Credit callback for WorkerManager
         # Callback invoked to request N credits be issued to workers
         self.credit_callback: Callable[[int], None] | None = None
 
-    def set_credit_callback(self, callback: Callable[[int], None]):
+    def set_credit_callback(self, callback: Callable[[int], None] | None):
         """Set callback to be called when credits are available."""
         self.credit_callback = callback
 
@@ -117,24 +119,11 @@ class HardwareTask:
                 if frame_obj:
                     try:
                         # Segmented write: split by panels, encode per-protocol, then flush
-                        panel_bits_list = split_canvas_bits_to_panels(frame_obj.bits, self.config)
-                        addr_base = getattr(self.config, "address_base", 1)
-                        is_all_7x7 = (
-                            self.config.panel_w == 7 and self.config.panel_h == 7
+                        panel_bits_list = split_canvas_bits_to_panels(
+                            frame_obj.bits, self.config
                         )
-                        # Batch encode messages
-                        msgs: list[bytes] = []
-                        for idx, panel_bits in enumerate(panel_bits_list):
-                            address = addr_base + idx
-                            msg = encode_panel_message(
-                                panel_bits, address, refresh=is_all_7x7
-                            )
-                            msgs.append(msg)
-                        # Append flush for buffered modes (non-7x7)
-                        batch = b"".join(msgs)
-                        if not is_all_7x7:
-                            # Send a packed flush at the end
-                            batch += encode_flush()
+                        addr_base = getattr(self.config, "address_base", 1)
+                        batch = self.protocol.encode_batch(panel_bits_list, addr_base)
                         await self.serial_port.write_frame(batch)
                     except Exception as e:
                         logger.error(f"Failed to write frame: {e}")
@@ -158,6 +147,8 @@ class HardwareTask:
                         logger.info(
                             f"frame seq={frame_obj.seq} latency_ms={latency_ms:.1f} buffer={self.buffer.frames.qsize()}/{self.buffer.max_size}"
                         )
+                    # Keep the most recent frame for preview/UI
+                    self._last_frame_bits = frame_obj.bits.copy()
 
                 elapsed = loop.time() - start_time
                 sleep_time = max(0, self.frame_interval - elapsed)
@@ -213,4 +204,11 @@ class HardwareTask:
                 "serial_port": self.config.serial.port,
                 "mock_serial": self.config.serial.mock,
             },
+            "frames_presented": self._presented,
         }
+
+    def get_last_frame_bits(self) -> np.ndarray | None:
+        """Return a copy of the most recently presented frame bits, if any."""
+        if self._last_frame_bits is None:
+            return None
+        return self._last_frame_bits.copy()
