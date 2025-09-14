@@ -1,0 +1,13 @@
+[display]
+# Panel configuration - sizes are (width x height)
+panel_type = "28x7"  # "7x7", "14x7", or "28x7"
+columns = 4  # Number of panels horizontally
+rows = 2  # Number of panels vertically
+refresh_rate = 20.0  # Target FPS
+buffer_duration = 0.5  # Frame buffer duration in seconds
+
+[serial]
+port = "/dev/ttyUSB0"
+baudrate = 9600
+timeout = 1.0
+mock = true  # Set to false for real hardware

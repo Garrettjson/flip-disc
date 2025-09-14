@@ -1,1 +1,0 @@
-# Kaitai-generated parsers

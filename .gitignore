@@ -4,6 +4,9 @@
 # DS_Store
 .DS_Store
 
+# Ruff cache
+.ruff_cache/
+
 # Claude settings
 .claude/
 
@@ -130,7 +133,7 @@ celerybeat.pid
 
 # Environments
 .env
-.venv
+.venv/
 env/
 venv/
 ENV/
