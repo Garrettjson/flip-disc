@@ -5,8 +5,10 @@ Consumes control events/config and produces grayscale frames into the raw ring.
 
 from __future__ import annotations
 
-import multiprocessing as mp
 import time
+from multiprocessing.sharedctypes import Synchronized
+from multiprocessing.synchronize import Event, Semaphore
+from typing import Any
 
 import numpy as np
 
@@ -16,17 +18,16 @@ from ..shared_ring import RingMeta, SPSCSharedRing
 
 def generator_main(
     raw_meta: RingMeta,
-    head,  # mp.Value
-    tail,  # mp.Value
-    free_slots,  # mp.Semaphore
-    items,  # mp.Semaphore
-    running_event: mp.Event,
-    reload_event: mp.Event,
-    reset_event: mp.Event,
+    head: Synchronized[int],
+    tail: Synchronized[int],
+    free_slots: Semaphore,
+    items: Semaphore,
+    running_event: Event,
+    reset_event: Event,
     width: int,
     height: int,
     animation: str,
-    params: dict,
+    params: dict[str, Any],
 ) -> None:
     ring = SPSCSharedRing.attach(raw_meta, head, tail, free_slots, items)
     anim = get_animation(animation, width, height)
@@ -40,19 +41,13 @@ def generator_main(
         while True:
             if not running_event.is_set():
                 time.sleep(0.01)
-                # Check for reload while idle
-                if reload_event.is_set():
-                    reload_event.clear()
-                    # For now, ignore reload; a higher-level controller would restart the process with new params
+                # Check for reset while idle
                 if reset_event.is_set():
                     reset_event.clear()
                     anim.reset()
                 continue
 
             # Handle control flags
-            if reload_event.is_set():
-                reload_event.clear()
-                # No-op placeholder for future dynamic reconfig
             if reset_event.is_set():
                 reset_event.clear()
                 anim.reset()

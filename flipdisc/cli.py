@@ -15,7 +15,6 @@ async def _run_server(args: argparse.Namespace) -> int:
     try:
         await app.start(
             config_path=args.config,
-            num_workers=args.workers,
             host=args.host,
             port=args.port,
         )

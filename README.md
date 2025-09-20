@@ -3,10 +3,11 @@
 A fast, robust flip-dot display controller written 100% in Python. It runs on a single Raspberry Pi (or any Linux box), exposes a FastAPI HTTP interface, spawns animation generation and post-processing processes, and drives flip-dot panels over RS-485 with a small, protocol-correct encoder.
 
 Highlights
-- Async display presenter that paces the display (default 20 FPS) and owns serial I/O
+- Async display presenter with deadline-based timing that paces the display (default 20 FPS) and owns serial I/O
 - Zero-copy shared memory rings for high-performance inter-process communication
-- Multiprocessing pipeline: Generator → PostProcessor → Presenter
+- Multiprocessing pipeline with cooperative shutdown: Generator → PostProcessor → Presenter
 - Segmented panel writes + proper flush semantics (7x7 immediate refresh; 14x7/28x7 buffered + flush)
+- Preview isolation via asyncio queues prevents UI callbacks from blocking the main presenter loop
 - Clean separation: engine (runtime), hardware (protocol/transport), animations (step/render), core (exceptions)
 
 
@@ -161,6 +162,7 @@ Tips
 - Exception handling follows "log at level of knowledge": lower layers raise typed errors with context; top-level decides severity.
 - Mock serial is on by default; set `mock=false` to write to real hardware.
 - Shared memory rings provide zero-copy communication between animation generation and presentation processes.
+- Cooperative shutdown prevents data corruption during process termination; processes are given time to clean up before forced termination.
 
 
 ## API (selected)

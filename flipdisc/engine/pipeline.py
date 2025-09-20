@@ -81,12 +81,31 @@ class DisplayPipeline:
         self._running = False
         self._playing = False
 
-        # Last frame storage + callback
+        # Last frame storage + preview queue
         self._last_frame: np.ndarray | None = None
-        self._preview_cb: Callable[[np.ndarray], None] | None = None
+        self._preview_queue: asyncio.Queue[np.ndarray] | None = None
+        self._preview_task: asyncio.Task | None = None
 
     def set_preview_callback(self, cb: Callable[[np.ndarray], None] | None) -> None:
-        self._preview_cb = cb
+        """Set preview callback (legacy interface) - now uses internal queue."""
+        if cb is not None:
+            self._preview_queue = asyncio.Queue(maxsize=1)
+            # Start background task to drain queue and call callback
+            self._preview_task = asyncio.create_task(self._preview_consumer(cb))
+        else:
+            self._preview_queue = None
+            self._preview_task = None
+
+    async def _preview_consumer(self, callback: Callable[[np.ndarray], None]) -> None:
+        """Background task to drain preview queue and call callback."""
+        while self._preview_queue is not None:
+            try:
+                frame = await self._preview_queue.get()
+                callback(frame)
+            except Exception:
+                # If callback fails, stop preview
+                self._preview_queue = None
+                break
 
     @property
     def running(self) -> bool:
@@ -114,7 +133,6 @@ class DisplayPipeline:
                 self.raw_free,
                 self.raw_items,
                 self.running_event,
-                self._ctx.Event(),  # reload_event placeholder
                 self.reset_event,
                 self.cfg.width,
                 self.cfg.height,
@@ -123,8 +141,6 @@ class DisplayPipeline:
             ),
             name="GeneratorProcess",
         )
-        # Workaround: since generator_main expects get_config callable, create a thin wrapper function
-        # that reconstructs config. We'll instead modify generator_main later. For now, start paused.
 
         # Start post-processor process
         self._pp_proc = self._ctx.Process(
@@ -159,11 +175,22 @@ class DisplayPipeline:
             self._presenter_task.cancel()
             with contextlib.suppress(asyncio.CancelledError):
                 await self._presenter_task
-        # Stop processes
+        if self._preview_task:
+            self._preview_task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await self._preview_task
+
+        # Cooperatively stop children
+        for proc in (self._gen_proc, self._pp_proc):
+            if proc and proc.is_alive():
+                proc.join(timeout=1.0)
+
+        # Last resort kill for any remaining processes
         for proc in (self._gen_proc, self._pp_proc):
             if proc and proc.is_alive():
                 proc.terminate()
-                proc.join(timeout=1.0)
+                proc.join(timeout=0.5)
+
         self._gen_proc = None
         self._pp_proc = None
 
@@ -204,8 +231,9 @@ class DisplayPipeline:
     async def _present_loop(self) -> None:
         try:
             loop = asyncio.get_running_loop()
+            next_deadline = loop.time()
             while self._running:
-                start = loop.time()
+                next_deadline += self.frame_interval
                 # Try acquire a ready frame within this tick interval
                 remaining = max(0.0, self.frame_interval * 0.9)
                 _, view = self.ready_ring.consumer_acquire_timeout(remaining)
@@ -215,28 +243,23 @@ class DisplayPipeline:
                         addr_base = getattr(self.cfg, "address_base", 1)
                         batch = self.encoder.encode_batch(panel_bits_list, addr_base)
                         await self.serial.write_frames([batch])
-                        # Store last frame and broadcast preview
+                        # Store last frame and broadcast preview (non-blocking)
                         self._last_frame = view.copy()
-                        if self._preview_cb is not None:
-                            try:
-                                self._preview_cb(view)
-                            except Exception:
-                                self._preview_cb = None
+                        if self._preview_queue is not None:
+                            with contextlib.suppress(asyncio.QueueFull):
+                                self._preview_queue.put_nowait(view.copy())
                         self._presented += 1
                     finally:
                         self.ready_ring.consumer_release()
 
-                # Sleep remainder of tick
-                elapsed = loop.time() - start
-                sleep_time = max(0.0, self.frame_interval - elapsed)
+                # Sleep until next deadline
+                sleep_time = max(0.0, next_deadline - loop.time())
                 if sleep_time > 0:
                     await asyncio.sleep(sleep_time)
         except asyncio.CancelledError:
             pass
         except Exception as e:
             raise HardwareError(f"Presenter failed: {e}") from e
-
-    # --- Control helpers for API ----------------------------------------
 
     async def set_refresh_rate(self, new_fps: float) -> None:
         if new_fps <= 0:
@@ -258,10 +281,13 @@ class DisplayPipeline:
         """
         if params is None:
             params = {}
-        # Stop current generator
+        # Stop current generator cooperatively
         if self._gen_proc and self._gen_proc.is_alive():
-            self._gen_proc.terminate()
             self._gen_proc.join(timeout=1.0)
+            # Last resort terminate if still alive
+            if self._gen_proc.is_alive():
+                self._gen_proc.terminate()
+                self._gen_proc.join(timeout=0.5)
         # Start a new generator with provided animation
         self._gen_proc = self._ctx.Process(
             target=generator_main,
@@ -272,7 +298,6 @@ class DisplayPipeline:
                 self.raw_free,
                 self.raw_items,
                 self.running_event,
-                self._ctx.Event(),  # reload placeholder
                 self.reset_event,
                 self.cfg.width,
                 self.cfg.height,

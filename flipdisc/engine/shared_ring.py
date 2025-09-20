@@ -29,11 +29,21 @@ from dataclasses import dataclass
 from multiprocessing.shared_memory import SharedMemory
 from multiprocessing.sharedctypes import Synchronized
 from multiprocessing.synchronize import Semaphore
-from typing import Literal
+from typing import TYPE_CHECKING, Literal
 
 import numpy as np
 
 DTypeStr = Literal["float32", "bool", "uint8"]
+
+
+if TYPE_CHECKING:
+    HeadIndex = Synchronized[int]
+    TailIndex = Synchronized[int]
+    CountSem = Semaphore
+else:
+    HeadIndex = Synchronized
+    TailIndex = Synchronized
+    CountSem = Semaphore
 
 
 @dataclass(frozen=True)
@@ -55,10 +65,10 @@ class SPSCSharedRing:
         height: int,
         width: int,
         dtype: DTypeStr,
-        head: Synchronized[int],
-        tail: Synchronized[int],
-        free_slots: Semaphore,
-        items: Semaphore,
+        head: HeadIndex,
+        tail: TailIndex,
+        free_slots: CountSem,
+        items: CountSem,
     ) -> None:
         self._shm = shm
         self.capacity = int(capacity)
@@ -94,7 +104,7 @@ class SPSCSharedRing:
         dtype: DTypeStr,
         *,
         name: str | None = None,
-    ) -> tuple[SPSCSharedRing, RingMeta, Synchronized[int], Synchronized[int], Semaphore, Semaphore]:
+    ) -> tuple[SPSCSharedRing, RingMeta, HeadIndex, TailIndex, CountSem, CountSem]:
         """Create a new ring and return it with the shared primitives.
 
         Returns the ring plus: (meta, head, tail, free_slots, items) which
@@ -118,10 +128,10 @@ class SPSCSharedRing:
     def attach(
         cls,
         meta: RingMeta,
-        head: Synchronized[int],
-        tail: Synchronized[int],
-        free_slots: Semaphore,
-        items: Semaphore,
+        head: HeadIndex,
+        tail: TailIndex,
+        free_slots: CountSem,
+        items: CountSem,
     ) -> SPSCSharedRing:
         """Attach to an existing ring using shared primitives passed by parent."""
         shm = SharedMemory(name=meta.name)

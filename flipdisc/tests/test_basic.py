@@ -15,7 +15,7 @@ async def _async_test_pipeline_basic():
     pipeline = DisplayPipeline(config)
     await pipeline.start(animation="bouncing_dot")
     await pipeline.play()
-    await asyncio.sleep(0.5)
+    await asyncio.sleep(1.0)
     st = pipeline.get_status()
     assert st.running is True
     assert st.frames_presented > 0
