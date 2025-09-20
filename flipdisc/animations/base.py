@@ -6,7 +6,7 @@ from typing import Any
 
 import numpy as np
 
-from ..core.exceptions import AnimationError
+from flipdisc.core.exceptions import AnimationError
 
 
 class Animation(ABC):

@@ -7,8 +7,8 @@ Assumptions:
 
 import numpy as np
 
-from ..config import DisplayConfig
-from ..core.exceptions import FrameError
+from flipdisc.config import DisplayConfig
+from flipdisc.core.exceptions import FrameError
 
 
 def split_canvas_bits_to_panels(

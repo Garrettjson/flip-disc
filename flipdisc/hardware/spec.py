@@ -10,6 +10,15 @@ from __future__ import annotations
 from enum import Enum
 from typing import NamedTuple
 
+# Protocol constants (frame markers and addressing)
+START_BYTE = 0x80
+END_BYTE = 0x8F
+FLUSH_COMMAND = 0x82
+BROADCAST_ADDRESS = 0xFF
+
+# Panel geometry
+PANEL_HEIGHT = 7  # All supported panels are 7 pixels tall
+
 
 class DataBytes(Enum):
     BYTES_7 = 7

@@ -7,49 +7,20 @@ import numpy as np
 
 from flipdisc.animations import get_animation, list_animations
 from flipdisc.config import DisplayConfig
-from flipdisc.core.types import Frame
-from flipdisc.engine.display_pacer import DisplayPacer
-from flipdisc.engine.worker_pool import AnimationWorkerPool
+from flipdisc.engine.pipeline import DisplayPipeline
 
 
-def create_test_pattern(
-    width: int, height: int, pattern: str = "checkerboard"
-) -> np.ndarray:
-    pixels = np.zeros((height, width), dtype=bool)
-    if pattern == "checkerboard":
-        for y in range(height):
-            for x in range(width):
-                pixels[y, x] = (x + y) % 2 == 0
-    elif pattern == "solid":
-        pixels[:, :] = True
-    # "clear" leaves pixels all False
-    return pixels
-
-
-async def _async_test_hardware_basic():
+async def _async_test_pipeline_basic():
     config = DisplayConfig()
-    hardware = DisplayPacer(config)
-
-    hw_task = asyncio.create_task(hardware.start())
-    await asyncio.sleep(0.1)
-
-    status = hardware.get_status()
-    assert status["running"] is True
-    assert status["connected"] is True
-
-    for seq, pattern in enumerate(["checkerboard", "solid", "clear"], start=1):
-        bits = create_test_pattern(config.width, config.height, pattern)
-        assert bits.shape == (config.height, config.width)
-        assert bits.dtype == bool
-        success = await hardware.display_frame(
-            Frame(seq=seq, produced_ts=0.0, target_ts=None, bits=bits)
-        )
-        assert success is True
-        await asyncio.sleep(0.1)
-
-    await hardware.stop()
-    hw_task.cancel()
-    # No prints; rely on assertions
+    pipeline = DisplayPipeline(config)
+    await pipeline.start(animation="bouncing_dot")
+    await pipeline.play()
+    await asyncio.sleep(0.5)
+    st = pipeline.get_status()
+    assert st.running is True
+    assert st.frames_presented > 0
+    await pipeline.pause()
+    await pipeline.stop()
 
 
 async def _async_test_animations_direct():
@@ -70,34 +41,24 @@ async def _async_test_animations_direct():
     # No prints
 
 
-async def _async_test_worker_integration():
+async def _async_test_pipeline_integration():
     config = DisplayConfig()
-    hardware = DisplayPacer(config)
-    manager = AnimationWorkerPool(config, display_pacer=hardware, num_workers=1)
-
-    hw_task = asyncio.create_task(hardware.start())
-    await manager.start()
-    await manager.set_animation("bouncing_dot")
-
+    pipeline = DisplayPipeline(config)
+    await pipeline.start(animation="bouncing_dot")
+    await pipeline.play()
     await asyncio.sleep(1.0)
-    mstat = manager.get_status()
-    assert mstat["alive_workers"] == 1
-    assert mstat["healthy_workers"] == 1
-    assert mstat["total_frames_collected"] > 0
-
-    await manager.stop()
-    await hardware.stop()
-    hw_task.cancel()
-    # No prints
+    st = pipeline.get_status()
+    assert st.frames_presented > 0
+    await pipeline.stop()
 
 
-def test_hardware_basic():
-    asyncio.run(_async_test_hardware_basic())
+def test_pipeline_basic():
+    asyncio.run(_async_test_pipeline_basic())
 
 
 def test_animations_direct():
     asyncio.run(_async_test_animations_direct())
 
 
-def test_worker_integration():
-    asyncio.run(_async_test_worker_integration())
+def test_pipeline_integration():
+    asyncio.run(_async_test_pipeline_integration())

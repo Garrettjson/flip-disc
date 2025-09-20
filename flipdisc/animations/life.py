@@ -118,43 +118,46 @@ class Life(Animation):
         self.grid = np.random.random((self.height, self.width)) < density
         self.generation = 0
 
+    def _place_pattern(
+        self, pattern: list[tuple[int, int]], offset_x: int = 0, offset_y: int = 0
+    ):
+        """Place a pattern on the grid with given offset."""
+        center_x, center_y = self.width // 2, self.height // 2
+        for dx, dy in pattern:
+            x, y = center_x + dx + offset_x, center_y + dy + offset_y
+            if 0 <= x < self.width and 0 <= y < self.height:
+                self.grid[y, x] = True
+
+    def _load_glider(self):
+        pattern = [(1, 0), (2, 1), (0, 2), (1, 2), (2, 2)]
+        self._place_pattern(pattern, offset_x=-1, offset_y=-1)
+
+    def _load_blinker(self):
+        pattern = [(-1, 0), (0, 0), (1, 0)]
+        self._place_pattern(pattern)
+
+    def _load_block(self):
+        pattern = [(0, 0), (0, 1), (1, 0), (1, 1)]
+        self._place_pattern(pattern)
+
+    def _load_beacon(self):
+        pattern = [(0, 0), (0, 1), (1, 0), (2, 3), (3, 2), (3, 3)]
+        self._place_pattern(pattern, offset_x=-1, offset_y=-1)
+
     def _load_pattern(self, pattern_name: str):
         """Load a predefined pattern."""
         self.grid.fill(False)
         self.generation = 0
 
-        center_x, center_y = self.width // 2, self.height // 2
+        pattern_loaders = {
+            "glider": self._load_glider,
+            "blinker": self._load_blinker,
+            "block": self._load_block,
+            "beacon": self._load_beacon,
+        }
 
-        if pattern_name == "glider":
-            # Classic glider pattern
-            pattern = [(1, 0), (2, 1), (0, 2), (1, 2), (2, 2)]
-            for dx, dy in pattern:
-                x, y = center_x + dx - 1, center_y + dy - 1
-                if 0 <= x < self.width and 0 <= y < self.height:
-                    self.grid[y, x] = True
-
-        elif pattern_name == "blinker":
-            # Oscillating blinker
-            for dx in [-1, 0, 1]:
-                x = center_x + dx
-                if 0 <= x < self.width:
-                    self.grid[center_y, x] = True
-
-        elif pattern_name == "block":
-            # Stable block
-            pattern = [(0, 0), (0, 1), (1, 0), (1, 1)]
-            for dx, dy in pattern:
-                x, y = center_x + dx, center_y + dy
-                if 0 <= x < self.width and 0 <= y < self.height:
-                    self.grid[y, x] = True
-
-        elif pattern_name == "beacon":
-            # Oscillating beacon
-            pattern = [(0, 0), (0, 1), (1, 0), (2, 3), (3, 2), (3, 3)]
-            for dx, dy in pattern:
-                x, y = center_x + dx - 1, center_y + dy - 1
-                if 0 <= x < self.width and 0 <= y < self.height:
-                    self.grid[y, x] = True
+        loader = pattern_loaders.get(pattern_name)
+        if loader:
+            loader()
         else:
-            # Default to random
             self._randomize()

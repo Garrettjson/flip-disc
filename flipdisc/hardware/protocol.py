@@ -10,7 +10,8 @@ from collections.abc import Iterable
 
 import numpy as np
 
-from ..config import DisplayConfig
+from flipdisc.config import DisplayConfig
+
 from .formats import (
     encode_flush as _encode_flush,
 )

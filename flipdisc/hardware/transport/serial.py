@@ -10,8 +10,8 @@ from collections.abc import Iterable
 from aioserial import AioSerial
 from serial import SerialException
 
-from ...config import SerialConfig
-from ...core.exceptions import SerialConnectionError
+from flipdisc.config import SerialConfig
+from flipdisc.core.exceptions import SerialConnectionError
 
 logger = logging.getLogger(__name__)
 

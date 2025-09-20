@@ -2,7 +2,7 @@
 """
 Main application entry point.
 
-Wires together HardwareTask, WorkerManager, and APITask according to the outline.
+Wires together DisplayPipeline (generator → postproc → presenter) and ApiServer.
 """
 
 import argparse
@@ -14,8 +14,7 @@ import sys
 
 from .config import load_config
 from .engine.api_server import ApiServer
-from .engine.display_pacer import DisplayPacer
-from .engine.worker_pool import AnimationWorkerPool
+from .engine.pipeline import DisplayPipeline
 from .logging_conf import setup_logging
 
 
@@ -35,7 +34,6 @@ class FlipDiscApplication:
     async def start(
         self,
         config_path: str | None = None,
-        num_workers: int = 1,
         host: str = "0.0.0.0",
         port: int = 8000,
     ):
@@ -52,20 +50,13 @@ class FlipDiscApplication:
             )
 
             # Create tasks
-            self.hardware_task = DisplayPacer(self.config)
-            self.worker_manager = AnimationWorkerPool(
-                self.config, self.hardware_task, num_workers
-            )
-            self.api_task = ApiServer(
-                self.config, self.hardware_task, self.worker_manager
-            )
+            self.pipeline = DisplayPipeline(self.config)
+            self.api_task = ApiServer(self.config, self.pipeline)
 
             # Start tasks in order
-            logger.info("Starting DisplayPacer...")
-            self._hardware_task = asyncio.create_task(self.hardware_task.start())
-
-            logger.info(f"Starting AnimationWorkerPool with {num_workers} workers...")
-            await self.worker_manager.start()
+            logger.info("Starting pipeline (idle)...")
+            # Start pipeline with default animation but not playing; processes idle until play
+            await self.pipeline.start(animation="bouncing_dot", params={})
 
             # Do not start any animation by default; user controls start/stop via API/UI
 
@@ -91,11 +82,8 @@ class FlipDiscApplication:
         self.running = False
 
         # Stop tasks in reverse order
-        if self.worker_manager:
-            await self.worker_manager.stop()
-
-        if self.hardware_task:
-            await self.hardware_task.stop()
+        if getattr(self, "pipeline", None):
+            await self.pipeline.stop()
 
         logger.info("Application shutdown complete")
 
@@ -126,11 +114,11 @@ async def main():
     signal.signal(signal.SIGTERM, signal_handler)
 
     try:
-        # Ensure consistent semantics across platforms
-        mp.set_start_method("spawn", force=True)
+        # Ensure consistent semantics across platforms, prefer 'fork' on macOS
+        method = "fork" if sys.platform == "darwin" else "spawn"
+        mp.set_start_method(method, force=True)
         await app.start(
             config_path=args.config,
-            num_workers=args.workers,
             host=args.host,
             port=args.port,
         )

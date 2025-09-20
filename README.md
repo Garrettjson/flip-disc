@@ -1,13 +1,13 @@
 # Flip-Disc (Python, single-Pi)
 
-A fast, robust flip-dot display controller written 100% in Python. It runs on a single Raspberry Pi (or any Linux box), exposes a FastAPI HTTP interface, spawns one or more animation worker processes, and drives flip-dot panels over RS-485 with a small, protocol-correct encoder.
+A fast, robust flip-dot display controller written 100% in Python. It runs on a single Raspberry Pi (or any Linux box), exposes a FastAPI HTTP interface, spawns animation generation and post-processing processes, and drives flip-dot panels over RS-485 with a small, protocol-correct encoder.
 
 Highlights
-- Async hardware ticker that paces the display (default 20 FPS) and owns serial I/O
-- Backpressure with credit-based workers (server “pulls” frames); ~0.5s buffer for smoothness
-- Multiprocessing animation workers generate grayscale, dither to binary (bool), and return images
+- Async display presenter that paces the display (default 20 FPS) and owns serial I/O
+- Zero-copy shared memory rings for high-performance inter-process communication
+- Multiprocessing pipeline: Generator → PostProcessor → Presenter
 - Segmented panel writes + proper flush semantics (7x7 immediate refresh; 14x7/28x7 buffered + flush)
-- Clean separation: engine (runtime components), hardware (protocol/transport), animations (step/render), workers (IPC), core (types)
+- Clean separation: engine (runtime), hardware (protocol/transport), animations (step/render), core (exceptions)
 
 
 ## Quick Start
@@ -20,14 +20,11 @@ Install (dev) with uv:
 ```bash
 # Install dependencies (including dev extras) using the lockfile
 uv sync --extra dev
-
-# Optionally, activate the created virtualenv (uv creates .venv by default)
-source .venv/bin/activate
 ```
 
 Run the server (mock serial by default):
 ```bash
-python -m flipdisc run-server --config config.toml --workers 1 --host 0.0.0.0 --port 8000
+python -m flipdisc run-server --config config.toml --host 0.0.0.0 --port 8000
 ```
 
 Endpoints @`http://localhost:8000`:
@@ -86,24 +83,22 @@ flip-disc/
    ├─ logging_conf.py
    ├─ config.py               # Config loading + validation (TOML)
    ├─ core/
-   │  ├─ types.py             # Frame dataclass
    │  └─ exceptions.py        # Project-wide exceptions
    ├─ engine/                 # Long-lived runtime components
    │  ├─ api_server.py        # FastAPI endpoints
-   │  ├─ display_pacer.py     # Pacing, buffer, serial writes, credits
-   │  └─ worker_pool.py       # Spawns workers, issues credits, enqueues frames
-   ├─ workers/
-   │  ├─ ipc.py               # Simple dataclasses for IPC
-   │  └─ runner.py            # Worker loop (step -> render_gray -> dither -> bool)
-   ├─ anims/
+   │  ├─ pipeline.py          # Orchestrator (generator → postproc → presenter)
+   │  ├─ shared_ring.py       # SPSC shared memory ring buffers
+   │  └─ processes/
+   │     ├─ generator.py      # Animation generation process
+   │     └─ postproc.py       # Post-processing (dithering) process
+   ├─ animations/
    │  ├─ base.py              # Animation interface (step/render_gray/config/reset)
    │  ├─ bouncing_dot.py
    │  ├─ life.py
    │  └─ pendulum.py
    ├─ hardware/
-   │  ├─ protocol/
-   │  │  ├─ spec.py           # Protocol enums + command map
-   │  │  └─ formats.py        # Encoder (panel msgs + flush)
+   │  ├─ formats.py           # Encoder (panel msgs + flush)
+   │  ├─ spec.py              # Protocol enums, command map, constants
    │  ├─ panel_map.py         # Slice canvas to per-panel bitmaps
    │  └─ transport/
    │     └─ serial.py         # Serial transports (hardware/mock)
@@ -122,30 +117,28 @@ flip-disc/
 sequenceDiagram
     autonumber
     participant API as ApiServer
-    participant WM as WorkerPool
-    participant W as Worker (proc)
-    participant HW as DisplayPacer
-    participant SP as SerialTransport
-    participant P as Panels
+    participant Pipeline as DisplayPipeline
+    participant Gen as Generator Process
+    participant Post as PostProcessor Process
+    participant Present as Presenter
+    participant Serial as SerialTransport
+    participant Panels as Hardware
 
-    API->>WM: POST /anim/{name}
-    WM->>W: SetAnimationCommand(name)
-    Note over HW: Ticker @ refresh_rate
-    loop Every tick
-        HW->>HW: free = buffer.free()
-        alt free > 0
-            HW->>WM: credit_callback(count=free)
-            WM->>W: CreditCommand x free (round-robin)
-            W->>WM: Response(frame=bool[HxW])
-            WM->>HW: enqueue Frame(bits, seq, produced_ts)
-        end
-        HW->>SP: encode panels + write (batch)
+    API->>Pipeline: POST /anim/{name}
+    Pipeline->>Gen: Start animation generation
+    Pipeline->>Post: Start post-processing
+
+    Note over Present: Presenter ticks @ refresh_rate
+    loop Every Frame
+        Gen->>Post: Grayscale frame (via shared_ring)
+        Post->>Present: Binary frame (via shared_ring)
+        Present->>Serial: Encode + write batch
         alt panels 7x7
-            Note over HW,SP: Refresh=true per panel; no flush
+            Serial->>Panels: Immediate refresh per panel
         else 14x7/28x7
-            SP-->>P: write frames
-            SP->>P: broadcast flush
+            Serial->>Panels: Buffered frames + flush
         end
+        Present->>Pipeline: Store last frame for UI preview
     end
 ```
 
@@ -164,14 +157,15 @@ uv run ruff check --fix
 ```
 
 Tips
-- The app uses the multiprocessing "spawn" start method for parity across macOS/Linux.
+- The app uses the multiprocessing "fork" start method on macOS for better performance, "spawn" elsewhere.
 - Exception handling follows "log at level of knowledge": lower layers raise typed errors with context; top-level decides severity.
 - Mock serial is on by default; set `mock=false` to write to real hardware.
+- Shared memory rings provide zero-copy communication between animation generation and presentation processes.
 
 
 ## API (selected)
 
-- GET `/status`: hardware (buffer, free, drops, frames_presented) + workers (frames collected/dropped)
+- GET `/status`: pipeline status (running, playing, frames_presented) + ring buffer status
 - GET `/animations` -> { animations }
 - POST `/anim/{name}` -> start animation
 - POST `/animations/configure` -> set params on current animation
@@ -180,4 +174,3 @@ Tips
 - POST `/fps?new_fps=20` -> update refresh rate atomically
 - POST `/display/test/{pattern}` -> checkerboard | solid | clear
 - POST `/serial/reconnect`
-- POST `/workers/restart`

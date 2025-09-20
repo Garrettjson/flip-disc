@@ -10,8 +10,15 @@ for a 7-pixel-tall column: bit0=top pixel, bit6=bottom pixel, bit7 must be 0.
 
 import numpy as np
 
-from .constants import END_BYTE, PANEL_HEIGHT, START_BYTE, Command
-from .spec import Refresh, data_bytes_from_panel_size, get_protocol_config
+from .spec import (
+    END_BYTE,
+    FLUSH_COMMAND,
+    PANEL_HEIGHT,
+    START_BYTE,
+    Refresh,
+    data_bytes_from_panel_size,
+    get_protocol_config,
+)
 
 
 def _cmd_for_panel_width(panel_w: int, refresh: bool) -> int:
@@ -49,4 +56,4 @@ def encode_panel_message(
 
 def encode_flush() -> bytes:
     """Encode a broadcast flush frame."""
-    return bytes([START_BYTE, int(Command.FLUSH), END_BYTE])
+    return bytes([START_BYTE, FLUSH_COMMAND, END_BYTE])

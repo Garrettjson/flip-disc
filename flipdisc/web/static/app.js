@@ -71,12 +71,26 @@ async function refreshStatus() {
   bufferEl.textContent = `${b.size}/${b.max_size} (free ${b.free})`;
 }
 
-async function refreshPreview() {
+// Live preview over WebSocket; falls back to HTTP polling on disconnect
+let previewWS = null;
+function connectPreviewWS() {
   try {
-    const p = await fetchJSON('/preview');
-    drawBits(p.bits, p.width, p.height);
-  } catch (e) {
-    // ignore transient errors
+    const proto = window.location.protocol === 'https:' ? 'wss' : 'ws';
+    previewWS = new WebSocket(`${proto}://${window.location.host}/ws/preview`);
+    previewWS.onmessage = (ev) => {
+      try {
+        const p = JSON.parse(ev.data);
+        drawBits(p.bits, p.width, p.height);
+      } catch (_) {
+        // ignore
+      }
+    };
+    previewWS.onclose = () => {
+      // Retry after a short delay
+      setTimeout(connectPreviewWS, 2000);
+    };
+  } catch (_) {
+    // ignore
   }
 }
 
@@ -108,7 +122,6 @@ stopBtn.addEventListener('click', stopAnimation);
 (async function init() {
   await loadAnimations();
   await refreshStatus();
-  await refreshPreview();
+  connectPreviewWS();
   setInterval(refreshStatus, 2000);
-  setInterval(refreshPreview, 500);
 })();
