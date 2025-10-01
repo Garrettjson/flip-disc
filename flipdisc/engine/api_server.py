@@ -14,6 +14,7 @@ from fastapi.staticfiles import StaticFiles
 
 from flipdisc.config import DisplayConfig
 from flipdisc.core.exceptions import AnimationError
+from flipdisc.animations import list_animations as list_animation_names
 
 from .pipeline import DisplayPipeline
 
@@ -56,7 +57,6 @@ class ApiServer:
                         "running": st.running,
                         "playing": st.playing,
                         "frames_presented": st.frames_presented,
-                        "raw_ring": st.raw_ring,
                         "ready_ring": st.ready_ring,
                         "serial_connected": self.pipeline.serial.is_connected(),
                     },
@@ -71,9 +71,9 @@ class ApiServer:
                 raise HTTPException(500, f"Status error: {e}") from e
 
         @self.app.get("/animations")
-        async def list_animations():
+        async def list_animations_route():
             try:
-                animations = list_animations()
+                animations = list_animation_names()
                 return {"animations": animations}
             except Exception as e:
                 logger.error(f"Error listing animations: {e}")
@@ -82,10 +82,10 @@ class ApiServer:
         @self.app.post("/animations/{name}/start")
         async def start_animation(name: str):
             try:
-                # Ensure pipeline started (processes running)
                 if not self.pipeline.running:
                     await self.pipeline.start(animation=name)
-                await self.pipeline.set_animation(name)
+                else:
+                    await self.pipeline.set_animation(name)
                 await self.pipeline.play()
                 return {"message": f"Started animation: {name}"}
             except AnimationError as e:
@@ -137,7 +137,8 @@ class ApiServer:
             try:
                 if not self.pipeline.running:
                     await self.pipeline.start(animation=name)
-                await self.pipeline.set_animation(name)
+                else:
+                    await self.pipeline.set_animation(name)
                 await self.pipeline.play()
                 return {"message": f"Started animation: {name}"}
             except AnimationError as e:

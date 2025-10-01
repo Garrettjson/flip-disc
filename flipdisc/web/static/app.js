@@ -29,6 +29,7 @@ const setFpsBtn = document.getElementById('set-fps');
 const refreshBtn = document.getElementById('refresh');
 const canvas = document.getElementById('preview');
 const ctx = canvas.getContext('2d');
+const paramsContainer = document.getElementById('params-container');
 
 function drawBits(bits, width, height) {
   if (!bits || bits.length === 0) {
@@ -58,17 +59,114 @@ async function loadAnimations() {
     opt.value = name; opt.textContent = name;
     animSelect.appendChild(opt);
   });
+  updateAnimationParams();
+}
+
+function getAnimationParams(animationName) {
+  const params = {
+    bouncing_dot: [
+      { name: 'start_x', label: 'Start X', type: 'number', min: 0, max: 39, value: 2 },
+      { name: 'start_y', label: 'Start Y', type: 'number', min: 0, max: 27, value: 5 },
+      { name: 'speed_x', label: 'Speed X', type: 'number', min: -5, max: 5, value: 1 },
+      { name: 'speed_y', label: 'Speed Y', type: 'number', min: -5, max: 5, value: 2 }
+    ],
+    life: [
+      { name: 'density', label: 'Density', type: 'number', min: 0.1, max: 0.9, step: 0.1, value: 0.3 },
+      { name: 'pattern', label: 'Pattern', type: 'select', options: ['random', 'glider', 'blinker', 'block', 'beacon'], value: 'random' }
+    ]
+  };
+  return params[animationName] || [];
+}
+
+function updateAnimationParams() {
+  const selectedAnim = animSelect.value;
+  const params = getAnimationParams(selectedAnim);
+
+  paramsContainer.innerHTML = '';
+
+  if (params.length === 0) {
+    paramsContainer.innerHTML = '<p style="color: #666; font-style: italic;">No configurable parameters</p>';
+    return;
+  }
+
+  params.forEach(param => {
+    const row = document.createElement('div');
+    row.style.marginBottom = '8px';
+
+    const label = document.createElement('label');
+    label.textContent = param.label + ':';
+    label.style.display = 'inline-block';
+    label.style.width = '120px';
+    label.style.fontWeight = 'bold';
+
+    let input;
+    if (param.type === 'select') {
+      input = document.createElement('select');
+      param.options.forEach(opt => {
+        const option = document.createElement('option');
+        option.value = opt;
+        option.textContent = opt;
+        if (opt === param.value) option.selected = true;
+        input.appendChild(option);
+      });
+    } else {
+      input = document.createElement('input');
+      input.type = param.type;
+      input.value = param.value;
+      if (param.min !== undefined) input.min = param.min;
+      if (param.max !== undefined) input.max = param.max;
+      if (param.step !== undefined) input.step = param.step;
+      input.style.width = '80px';
+    }
+
+    input.id = `param-${param.name}`;
+    input.addEventListener('change', updateAnimationConfig);
+
+    row.appendChild(label);
+    row.appendChild(input);
+    paramsContainer.appendChild(row);
+  });
+}
+
+async function updateAnimationConfig() {
+  const selectedAnim = animSelect.value;
+  if (!selectedAnim) return;
+
+  const params = getAnimationParams(selectedAnim);
+  const config = { name: selectedAnim };
+
+  params.forEach(param => {
+    const input = document.getElementById(`param-${param.name}`);
+    if (input) {
+      let value = input.value;
+      if (param.type === 'number') {
+        value = parseFloat(value);
+      }
+      config[param.name] = value;
+    }
+  });
+
+  try {
+    await postJSON(`/animations/configure`, config);
+  } catch (error) {
+    console.error('Failed to configure animation:', error);
+  }
 }
 
 async function refreshStatus() {
   const s = await fetchJSON('/status');
-  runningEl.textContent = s.hardware.running ? 'Yes' : 'No';
-  connectedEl.textContent = s.hardware.connected ? 'Yes' : 'No';
-  fpsEl.textContent = s.config.refresh_rate;
-  presentedEl.textContent = s.hardware.frames_presented;
-  sizeEl.textContent = `${s.config.width} x ${s.config.height}`;
-  const b = s.hardware.buffer;
-  bufferEl.textContent = `${b.size}/${b.max_size} (free ${b.free})`;
+  // Adapt to pipeline-shaped status
+  const p = s.pipeline || {};
+  runningEl.textContent = p.running ? 'Yes' : 'No';
+  connectedEl.textContent = p.serial_connected ? 'Yes' : 'No';
+  fpsEl.textContent = s.config?.refresh_rate ?? '-';
+  presentedEl.textContent = (p.frames_presented ?? 0).toString();
+  if (s.config) {
+    sizeEl.textContent = `${s.config.width} x ${s.config.height}`;
+  }
+  const rr = p.ready_ring || {};
+  const cap = rr.capacity !== undefined ? rr.capacity : '-';
+  bufferEl.textContent = `capacity ${cap}`;
 }
 
 // Live preview over WebSocket; falls back to HTTP polling on disconnect
@@ -96,8 +194,16 @@ function connectPreviewWS() {
 
 async function startSelected() {
   const name = animSelect.value;
-  if (!name) return;
-  await postJSON(`/anim/${encodeURIComponent(name)}`);
+  if (!name) {
+    // Try selecting the first option if available
+    if (animSelect.options.length > 0) {
+      animSelect.selectedIndex = 0;
+    } else {
+      return;
+    }
+  }
+  const sel = animSelect.value;
+  await postJSON(`/anim/${encodeURIComponent(sel)}`);
   await refreshStatus();
 }
 async function stopAnimation() {
@@ -117,11 +223,16 @@ startBtn.addEventListener('click', startSelected);
 setFpsBtn.addEventListener('click', setFps);
 refreshBtn.addEventListener('click', refreshStatus);
 stopBtn.addEventListener('click', stopAnimation);
+animSelect.addEventListener('change', updateAnimationParams);
 
 // Init
 (async function init() {
   await loadAnimations();
+  // Auto-select first animation if available
+  if (animSelect.options.length > 0 && !animSelect.value) {
+    animSelect.selectedIndex = 0;
+  }
   await refreshStatus();
   connectPreviewWS();
-  setInterval(refreshStatus, 2000);
+  setInterval(refreshStatus, 1000);
 })();

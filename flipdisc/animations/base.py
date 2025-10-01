@@ -2,11 +2,13 @@
 
 import time
 from abc import ABC, abstractmethod
-from typing import Any
+from typing import Any, Literal
 
 import numpy as np
 
 from flipdisc.core.exceptions import AnimationError
+
+OutputFormat = Literal["gray", "binary"]
 
 
 class Animation(ABC):
@@ -18,9 +20,12 @@ class Animation(ABC):
     - render_gray() returns grayscale frame
     - configure() sets animation parameters
     - reset() resets animation state
+    - output_format declares whether animation outputs "gray" or "binary"
     """
 
-    def __init__(self, width: int, height: int):
+    def __init__(self, width: int, height: int,
+                 output_format: OutputFormat = "gray",
+                 processing_steps: tuple[str, ...] | None = ("binarize",)):
         if width <= 0 or height <= 0:
             raise AnimationError(
                 f"Animation dimensions must be positive: {width}x{height}"
@@ -28,6 +33,8 @@ class Animation(ABC):
 
         self.width = width
         self.height = height
+        self.output_format = output_format
+        self.processing_steps = processing_steps
         self.start_time = time.time()
         self.current_time = 0.0
         self.params: dict[str, Any] = {}

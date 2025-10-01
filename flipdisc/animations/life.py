@@ -10,15 +10,13 @@ class Life(Animation):
     """Conway's Game of Life cellular automaton."""
 
     def __init__(self, width: int, height: int):
-        super().__init__(width, height)
+        super().__init__(width, height, output_format="gray", processing_steps=("dither",))
 
         # Game state
         self.grid = np.zeros((height, width), dtype=bool)
         self.next_grid = np.zeros((height, width), dtype=bool)
 
         # Timing
-        self.update_interval = 0.5  # Seconds between generations
-        self.last_update = 0.0
         self.generation = 0
 
         # Initialize with random pattern
@@ -28,8 +26,6 @@ class Life(Animation):
         """Configure Life parameters."""
         super().configure(**params)
 
-        if "update_interval" in params:
-            self.update_interval = float(params["update_interval"])
         if "density" in params:
             self._randomize(float(params["density"]))
         if "pattern" in params:
@@ -38,10 +34,7 @@ class Life(Animation):
     def step(self, dt: float) -> None:
         """Advance Game of Life simulation."""
         self.current_time += dt
-
-        if self.current_time - self.last_update >= self.update_interval:
-            self._update_generation()
-            self.last_update = self.current_time
+        self._update_generation()
 
     def render_gray(self) -> np.ndarray:
         """Render current Life state to grayscale."""

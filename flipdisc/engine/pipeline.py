@@ -17,14 +17,14 @@ from typing import Any
 
 import numpy as np
 
+from flipdisc.animations import get_animation
 from flipdisc.config import DisplayConfig
 from flipdisc.core.exceptions import HardwareError
 from flipdisc.hardware.panel_map import split_canvas_bits_to_panels
 from flipdisc.hardware.protocol import ProtocolEncoder
-from flipdisc.hardware.transport.serial import SerialTransport, create_serial_transport
+from flipdisc.hardware.serial import SerialTransport, create_serial_transport
 
-from .processes.generator import generator_main
-from .processes.postproc import postproc_main
+from .generator import unified_generator
 from .shared_ring import SPSCSharedRing
 
 logger = logging.getLogger(__name__)
@@ -35,7 +35,6 @@ class PipelineStatus:
     running: bool
     playing: bool
     frames_presented: int
-    raw_ring: dict[str, Any]
     ready_ring: dict[str, Any]
 
 
@@ -51,17 +50,8 @@ class DisplayPipeline:
         self.running_event = self._ctx.Event()
         self.reset_event = self._ctx.Event()
 
-        # Rings
+        # Ring buffer
         ready_capacity = max(1, int(cfg.refresh_rate * cfg.buffer_duration))
-        raw_capacity = ready_capacity + 1
-        (
-            self.raw_ring,
-            self.raw_meta,
-            self.raw_head,
-            self.raw_tail,
-            self.raw_free,
-            self.raw_items,
-        ) = SPSCSharedRing.create(raw_capacity, cfg.height, cfg.width, "float32")
         (
             self.ready_ring,
             self.ready_meta,
@@ -71,9 +61,8 @@ class DisplayPipeline:
             self.ready_items,
         ) = SPSCSharedRing.create(ready_capacity, cfg.height, cfg.width, "bool")
 
-        # Processes
+        # Process
         self._gen_proc: mp.Process | None = None
-        self._pp_proc: mp.Process | None = None
 
         # Presenter task
         self._presenter_task: asyncio.Task | None = None
@@ -123,15 +112,15 @@ class DisplayPipeline:
         await self.serial.connect()
         self._running = True
 
-        # Spawn generator and postproc processes
+        # Spawn unified generator process
         self._gen_proc = self._ctx.Process(
-            target=generator_main,
+            target=unified_generator,
             args=(
-                self.raw_meta,
-                self.raw_head,
-                self.raw_tail,
-                self.raw_free,
-                self.raw_items,
+                self.ready_meta,
+                self.ready_head,
+                self.ready_tail,
+                self.ready_free,
+                self.ready_items,
                 self.running_event,
                 self.reset_event,
                 self.cfg.width,
@@ -142,28 +131,8 @@ class DisplayPipeline:
             name="GeneratorProcess",
         )
 
-        # Start post-processor process
-        self._pp_proc = self._ctx.Process(
-            target=postproc_main,
-            args=(
-                self.raw_meta,
-                self.raw_head,
-                self.raw_tail,
-                self.raw_free,
-                self.raw_items,
-                self.ready_meta,
-                self.ready_head,
-                self.ready_tail,
-                self.ready_free,
-                self.ready_items,
-                self.running_event,
-            ),
-            name="PostProcessorProcess",
-        )
-
-        # Start processes
+        # Start generator process
         self._gen_proc.start()
-        self._pp_proc.start()
 
         # Presenter task
         self._presenter_task = asyncio.create_task(self._present_loop())
@@ -180,28 +149,22 @@ class DisplayPipeline:
             with contextlib.suppress(asyncio.CancelledError):
                 await self._preview_task
 
-        # Cooperatively stop children
-        for proc in (self._gen_proc, self._pp_proc):
-            if proc and proc.is_alive():
-                proc.join(timeout=1.0)
+        # Cooperatively stop generator
+        if self._gen_proc and self._gen_proc.is_alive():
+            self._gen_proc.join(timeout=0.1)
 
-        # Last resort kill for any remaining processes
-        for proc in (self._gen_proc, self._pp_proc):
-            if proc and proc.is_alive():
-                proc.terminate()
-                proc.join(timeout=0.5)
+        # Last resort kill for generator process
+        if self._gen_proc and self._gen_proc.is_alive():
+            self._gen_proc.terminate()
+            self._gen_proc.join(timeout=0.1)
 
         self._gen_proc = None
-        self._pp_proc = None
 
-        # Close serial and rings
+        # Close serial and ring
         with contextlib.suppress(Exception):
             await self.serial.disconnect()
-        self.raw_ring.close()
         self.ready_ring.close()
         # Owner should unlink
-        with contextlib.suppress(Exception):
-            self.raw_ring.unlink()
         with contextlib.suppress(Exception):
             self.ready_ring.unlink()
 
@@ -221,7 +184,6 @@ class DisplayPipeline:
             running=self._running,
             playing=self._playing,
             frames_presented=self._presented,
-            raw_ring=self.raw_ring.get_status(),
             ready_ring=self.ready_ring.get_status(),
         )
 
@@ -275,28 +237,26 @@ class DisplayPipeline:
     async def set_animation(
         self, name: str, params: dict[str, Any] | None = None
     ) -> None:
-        """(Re)start the generator process with a new animation.
-
-        Keeps the rings and presenter; only restarts the generator process.
-        """
+        """Restart the generator process with a new animation."""
         if params is None:
             params = {}
+
         # Stop current generator cooperatively
         if self._gen_proc and self._gen_proc.is_alive():
-            self._gen_proc.join(timeout=1.0)
-            # Last resort terminate if still alive
+            self._gen_proc.join(timeout=0.1)
             if self._gen_proc.is_alive():
                 self._gen_proc.terminate()
-                self._gen_proc.join(timeout=0.5)
-        # Start a new generator with provided animation
+                self._gen_proc.join(timeout=0.1)
+
+        # Start new unified generator
         self._gen_proc = self._ctx.Process(
-            target=generator_main,
+            target=unified_generator,
             args=(
-                self.raw_meta,
-                self.raw_head,
-                self.raw_tail,
-                self.raw_free,
-                self.raw_items,
+                self.ready_meta,
+                self.ready_head,
+                self.ready_tail,
+                self.ready_free,
+                self.ready_items,
                 self.running_event,
                 self.reset_event,
                 self.cfg.width,

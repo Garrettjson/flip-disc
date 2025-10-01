@@ -31,10 +31,15 @@ def main(argv: list[str] | None = None) -> int:
 
     p_run = sub.add_parser("run-server", help="Run the API server")
     p_run.add_argument("--config", help="Path to config TOML")
-    p_run.add_argument("--workers", type=int, default=1)
-    p_run.add_argument("--host", default="0.0.0.0")
-    p_run.add_argument("--port", type=int, default=8000)
-    p_run.add_argument("--log-level", default="INFO")
+    p_run.add_argument("--workers", type=int, default=1, help="Number of worker processes")
+    p_run.add_argument("--host", default="0.0.0.0", help="API server host")
+    p_run.add_argument("--port", type=int, default=8000, help="API server port")
+    p_run.add_argument(
+        "--log-level",
+        default="INFO",
+        choices=["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"],
+        help="Logging level (default: INFO)",
+    )
 
     args = parser.parse_args(argv)
 

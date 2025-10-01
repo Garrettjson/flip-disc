@@ -90,10 +90,7 @@ class FlipDiscApplication:
 
 async def main():
     """Main entry point."""
-    setup_logging("INFO")
-    logger = logging.getLogger(__name__)
-
-    # Parse command line arguments
+    # Parse command line arguments first to get log level
     parser = argparse.ArgumentParser(description="Flip-disc display controller")
     parser.add_argument("--config", help="Configuration file path")
     parser.add_argument(
@@ -101,7 +98,17 @@ async def main():
     )
     parser.add_argument("--port", type=int, default=8000, help="API server port")
     parser.add_argument("--host", default="0.0.0.0", help="API server host")
+    parser.add_argument(
+        "--log-level",
+        default="INFO",
+        choices=["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"],
+        help="Logging level (default: INFO)",
+    )
     args = parser.parse_args()
+
+    # Set up logging with specified level
+    setup_logging(args.log_level)
+    logger = logging.getLogger(__name__)
 
     app = FlipDiscApplication()
 

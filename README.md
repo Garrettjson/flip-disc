@@ -25,7 +25,7 @@ uv sync --extra dev
 
 Run the server (mock serial by default):
 ```bash
-python -m flipdisc run-server --config config.toml --host 0.0.0.0 --port 8000
+uv run python -m flipdisc run-server --config config.toml --host 0.0.0.0 --port 8000
 ```
 
 Endpoints @`http://localhost:8000`:
