@@ -73,6 +73,17 @@ function getAnimationParams(animationName) {
     life: [
       { name: 'density', label: 'Density', type: 'number', min: 0.1, max: 0.9, step: 0.1, value: 0.3 },
       { name: 'pattern', label: 'Pattern', type: 'select', options: ['random', 'glider', 'blinker', 'block', 'beacon'], value: 'random' }
+    ],
+    simplex_noise: [
+      { name: 'scale', label: 'Scale', type: 'number', min: 1, max: 20, step: 0.5, value: 4.0 },
+      { name: 'step_size', label: 'Speed', type: 'number', min: 0.01, max: 0.5, step: 0.01, value: 0.05 }
+    ],
+    wireframe_cube: [
+      { name: 'size', label: 'Size', type: 'number', min: 0.1, max: 0.5, step: 0.05, value: 0.35 },
+      { name: 'rotation_speed', label: 'Rot Speed', type: 'number', min: 0.1, max: 5.0, step: 0.1, value: 1.0 },
+      { name: 'axis_x', label: 'Axis X', type: 'number', min: 0, max: 2.0, step: 0.1, value: 1.0 },
+      { name: 'axis_y', label: 'Axis Y', type: 'number', min: 0, max: 2.0, step: 0.1, value: 0.7 },
+      { name: 'axis_z', label: 'Axis Z', type: 'number', min: 0, max: 2.0, step: 0.1, value: 0.3 }
     ]
   };
   return params[animationName] || [];
@@ -164,8 +175,7 @@ async function refreshStatus() {
   if (s.config) {
     sizeEl.textContent = `${s.config.width} x ${s.config.height}`;
   }
-  const rr = p.ready_ring || {};
-  const cap = rr.capacity !== undefined ? rr.capacity : '-';
+  const cap = p.buffer_capacity !== undefined ? p.buffer_capacity : '-';
   bufferEl.textContent = `capacity ${cap}`;
 }
 

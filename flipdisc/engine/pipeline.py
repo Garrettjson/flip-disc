@@ -1,8 +1,11 @@
-"""DisplayPipeline: orchestrates the generator/postproc pipeline and presenter.
+"""DisplayPipeline: orchestrates a background generator thread and async presenter.
 
-Creates two SPSC rings (raw float32 and ready bool), spawns two processes, and
-owns an async presenter that consumes ready frames at the configured refresh
-rate, encodes them, writes to serial, and broadcasts preview frames.
+The generator thread runs animations, applies post-processing, and pushes
+frames into a queue.Queue. The async presenter pulls frames at refresh_rate,
+encodes them, writes to serial, and broadcasts preview frames.
+
+The small frame buffer (queue.Queue(maxsize=N)) smooths compute spikes in the
+generator so the presenter always has frames ready to display.
 """
 
 from __future__ import annotations
@@ -10,7 +13,8 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import logging
-import multiprocessing as mp
+import queue
+import threading
 from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any
@@ -19,13 +23,11 @@ import numpy as np
 
 from flipdisc.animations import get_animation
 from flipdisc.config import DisplayConfig
-from flipdisc.core.exceptions import HardwareError
+from flipdisc.exceptions import HardwareError
+from flipdisc.gfx.postprocessing import apply_processing_pipeline
 from flipdisc.hardware.panel_map import split_canvas_bits_to_panels
 from flipdisc.hardware.protocol import ProtocolEncoder
 from flipdisc.hardware.serial import SerialTransport, create_serial_transport
-
-from .generator import unified_generator
-from .shared_ring import SPSCSharedRing
 
 logger = logging.getLogger(__name__)
 
@@ -35,7 +37,7 @@ class PipelineStatus:
     running: bool
     playing: bool
     frames_presented: int
-    ready_ring: dict[str, Any]
+    buffer_capacity: int
 
 
 class DisplayPipeline:
@@ -43,26 +45,25 @@ class DisplayPipeline:
         self.cfg = cfg
         self.frame_interval = 1.0 / cfg.refresh_rate
         self.serial: SerialTransport = create_serial_transport(cfg.serial)
-        self._ctx = mp.get_context()
         self.encoder = ProtocolEncoder(cfg)
 
-        # Shared events
-        self.running_event = self._ctx.Event()
-        self.reset_event = self._ctx.Event()
+        # Frame buffer
+        self._buffer_capacity = max(1, int(cfg.refresh_rate * cfg.buffer_duration))
+        self._frame_queue: queue.Queue[np.ndarray] = queue.Queue(
+            maxsize=self._buffer_capacity
+        )
 
-        # Ring buffer
-        ready_capacity = max(1, int(cfg.refresh_rate * cfg.buffer_duration))
-        (
-            self.ready_ring,
-            self.ready_meta,
-            self.ready_head,
-            self.ready_tail,
-            self.ready_free,
-            self.ready_items,
-        ) = SPSCSharedRing.create(ready_capacity, cfg.height, cfg.width, "bool")
+        # Threading events
+        self._stop_event = threading.Event()
+        self._play_event = threading.Event()
 
-        # Process
-        self._gen_proc: mp.Process | None = None
+        # Animation switch / configure requests (main thread -> generator thread)
+        self._anim_request: tuple[str, dict[str, Any]] | None = None
+        self._configure_request: dict[str, Any] | None = None
+        self._reset_requested = False
+
+        # Generator thread
+        self._gen_thread: threading.Thread | None = None
 
         # Presenter task
         self._presenter_task: asyncio.Task | None = None
@@ -76,23 +77,22 @@ class DisplayPipeline:
         self._preview_task: asyncio.Task | None = None
 
     def set_preview_callback(self, cb: Callable[[np.ndarray], None] | None) -> None:
-        """Set preview callback (legacy interface) - now uses internal queue."""
+        # Cancel any existing preview task before replacing
+        if self._preview_task is not None:
+            self._preview_task.cancel()
+            self._preview_task = None
+        self._preview_queue = None
+
         if cb is not None:
             self._preview_queue = asyncio.Queue(maxsize=1)
-            # Start background task to drain queue and call callback
             self._preview_task = asyncio.create_task(self._preview_consumer(cb))
-        else:
-            self._preview_queue = None
-            self._preview_task = None
 
     async def _preview_consumer(self, callback: Callable[[np.ndarray], None]) -> None:
-        """Background task to drain preview queue and call callback."""
         while self._preview_queue is not None:
             try:
                 frame = await self._preview_queue.get()
                 callback(frame)
             except Exception:
-                # If callback fails, stop preview
                 self._preview_queue = None
                 break
 
@@ -104,91 +104,73 @@ class DisplayPipeline:
     def playing(self) -> bool:
         return self._playing
 
-    async def start(
-        self, animation: str = "bouncing_dot", params: dict[str, Any] | None = None
-    ) -> None:
-        if params is None:
-            params = {}
-        await self.serial.connect()
-        self._running = True
+    # --- Generator thread -------------------------------------------------
 
-        # Spawn unified generator process
-        self._gen_proc = self._ctx.Process(
-            target=unified_generator,
-            args=(
-                self.ready_meta,
-                self.ready_head,
-                self.ready_tail,
-                self.ready_free,
-                self.ready_items,
-                self.running_event,
-                self.reset_event,
-                self.cfg.width,
-                self.cfg.height,
-                animation,
-                params,
-            ),
-            name="GeneratorProcess",
-        )
+    def _drain_queue(self) -> None:
+        """Drain all frames from the queue (called from generator thread)."""
+        while True:
+            try:
+                self._frame_queue.get_nowait()
+            except queue.Empty:
+                break
 
-        # Start generator process
-        self._gen_proc.start()
+    def _put_frame(self, frame: np.ndarray) -> None:
+        """Put a frame into the queue, respecting stop_event."""
+        while not self._stop_event.is_set():
+            try:
+                self._frame_queue.put(frame, timeout=0.05)
+                return
+            except queue.Full:
+                continue
 
-        # Presenter task
-        self._presenter_task = asyncio.create_task(self._present_loop())
+    def _generator_loop(self, animation_name: str, params: dict[str, Any]) -> None:
+        """Background thread: step animation, apply post-processing, enqueue frames."""
+        try:
+            anim = get_animation(animation_name, self.cfg.width, self.cfg.height)
+            if params:
+                anim.configure(**params)
 
-    async def stop(self) -> None:
-        self._running = False
-        self.running_event.clear()
-        if self._presenter_task:
-            self._presenter_task.cancel()
-            with contextlib.suppress(asyncio.CancelledError):
-                await self._presenter_task
-        if self._preview_task:
-            self._preview_task.cancel()
-            with contextlib.suppress(asyncio.CancelledError):
-                await self._preview_task
+            sim_dt = 1.0 / 60.0
 
-        # Cooperatively stop generator
-        if self._gen_proc and self._gen_proc.is_alive():
-            self._gen_proc.join(timeout=0.1)
+            while not self._stop_event.is_set():
+                # Wait for play
+                if not self._play_event.is_set():
+                    self._play_event.wait(timeout=0.05)
+                    continue
 
-        # Last resort kill for generator process
-        if self._gen_proc and self._gen_proc.is_alive():
-            self._gen_proc.terminate()
-            self._gen_proc.join(timeout=0.1)
+                # Check animation switch request
+                req = self._anim_request
+                if req is not None:
+                    self._anim_request = None
+                    name, new_params = req
+                    self._drain_queue()
+                    anim = get_animation(name, self.cfg.width, self.cfg.height)
+                    if new_params:
+                        anim.configure(**new_params)
 
-        self._gen_proc = None
+                # Check configure request (update params in place)
+                cfg_req = self._configure_request
+                if cfg_req is not None:
+                    self._configure_request = None
+                    anim.configure(**cfg_req)
 
-        # Close serial and ring
-        with contextlib.suppress(Exception):
-            await self.serial.disconnect()
-        self.ready_ring.close()
-        # Owner should unlink
-        with contextlib.suppress(Exception):
-            self.ready_ring.unlink()
+                # Check reset request
+                if self._reset_requested:
+                    self._reset_requested = False
+                    anim.reset()
 
-    async def play(self) -> None:
-        self._playing = True
-        self.running_event.set()
+                # Step simulation
+                anim.step(sim_dt)
+                gray_frame = anim.render_gray()
 
-    async def pause(self) -> None:
-        self._playing = False
-        self.running_event.clear()
+                # Apply processing pipeline
+                processed = apply_processing_pipeline(gray_frame, anim.processing_steps)
 
-    async def reset(self) -> None:
-        self.reset_event.set()
+                self._put_frame(processed)
+        except Exception:
+            logger.exception("Generator thread crashed")
 
-    def get_status(self) -> PipelineStatus:
-        return PipelineStatus(
-            running=self._running,
-            playing=self._playing,
-            frames_presented=self._presented,
-            ready_ring=self.ready_ring.get_status(),
-        )
-
-    def get_last_frame_bits(self) -> np.ndarray | None:
-        return self._last_frame
+    # --- Presenter (async) ------------------------------------------------
 
     async def _present_loop(self) -> None:
         try:
@@ -196,23 +178,24 @@ class DisplayPipeline:
             next_deadline = loop.time()
             while self._running:
                 next_deadline += self.frame_interval
-                # Try acquire a ready frame within this tick interval
-                remaining = max(0.0, self.frame_interval * 0.9)
-                _, view = self.ready_ring.consumer_acquire_timeout(remaining)
-                if view is not None:
-                    try:
-                        panel_bits_list = split_canvas_bits_to_panels(view, self.cfg)
-                        addr_base = getattr(self.cfg, "address_base", 1)
-                        batch = self.encoder.encode_batch(panel_bits_list, addr_base)
-                        await self.serial.write_frames([batch])
-                        # Store last frame and broadcast preview (non-blocking)
-                        self._last_frame = view.copy()
-                        if self._preview_queue is not None:
-                            with contextlib.suppress(asyncio.QueueFull):
-                                self._preview_queue.put_nowait(view.copy())
-                        self._presented += 1
-                    finally:
-                        self.ready_ring.consumer_release()
+
+                # Try to get a frame (non-blocking)
+                try:
+                    frame = self._frame_queue.get_nowait()
+                except queue.Empty:
+                    frame = None
+
+                if frame is not None:
+                    panel_bits_list = split_canvas_bits_to_panels(frame, self.cfg)
+                    addr_base = self.cfg.address_base
+                    batch = self.encoder.encode_batch(panel_bits_list, addr_base)
+                    await self.serial.write_frames([batch])
+
+                    self._last_frame = frame.copy()
+                    if self._preview_queue is not None:
+                        with contextlib.suppress(asyncio.QueueFull):
+                            self._preview_queue.put_nowait(frame.copy())
+                    self._presented += 1
 
                 # Sleep until next deadline
                 sleep_time = max(0.0, next_deadline - loop.time())
@@ -222,6 +205,76 @@ class DisplayPipeline:
             pass
         except Exception as e:
             raise HardwareError(f"Presenter failed: {e}") from e
+
+    # --- Public API -------------------------------------------------------
+
+    async def start(
+        self, animation: str = "bouncing_dot", params: dict[str, Any] | None = None
+    ) -> None:
+        if params is None:
+            params = {}
+        await self.serial.connect()
+        self._running = True
+
+        # Start generator thread
+        self._stop_event.clear()
+        self._gen_thread = threading.Thread(
+            target=self._generator_loop,
+            args=(animation, params),
+            name="GeneratorThread",
+            daemon=True,
+        )
+        self._gen_thread.start()
+
+        # Start presenter task
+        self._presenter_task = asyncio.create_task(self._present_loop())
+
+    async def stop(self) -> None:
+        self._running = False
+        self._playing = False
+
+        # Stop generator thread
+        self._stop_event.set()
+        self._play_event.set()  # unblock if waiting on play
+        if self._gen_thread is not None:
+            await asyncio.to_thread(self._gen_thread.join, 1.0)
+            self._gen_thread = None
+
+        # Cancel presenter + preview tasks
+        if self._presenter_task:
+            self._presenter_task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await self._presenter_task
+        if self._preview_task:
+            self._preview_task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await self._preview_task
+
+        # Disconnect serial
+        with contextlib.suppress(Exception):
+            await self.serial.disconnect()
+
+    async def play(self) -> None:
+        self._playing = True
+        self._play_event.set()
+
+    async def pause(self) -> None:
+        self._playing = False
+        self._play_event.clear()
+
+    async def reset(self) -> None:
+        self._reset_requested = True
+
+    def get_status(self) -> PipelineStatus:
+        return PipelineStatus(
+            running=self._running,
+            playing=self._playing,
+            frames_presented=self._presented,
+            buffer_capacity=self._buffer_capacity,
+        )
+
+    def get_last_frame_bits(self) -> np.ndarray | None:
+        return self._last_frame
 
     async def set_refresh_rate(self, new_fps: float) -> None:
         if new_fps <= 0:
@@ -237,33 +290,11 @@ class DisplayPipeline:
     async def set_animation(
         self, name: str, params: dict[str, Any] | None = None
     ) -> None:
-        """Restart the generator process with a new animation."""
+        """Switch animation — generator thread picks up the request atomically."""
         if params is None:
             params = {}
+        self._anim_request = (name, params)
 
-        # Stop current generator cooperatively
-        if self._gen_proc and self._gen_proc.is_alive():
-            self._gen_proc.join(timeout=0.1)
-            if self._gen_proc.is_alive():
-                self._gen_proc.terminate()
-                self._gen_proc.join(timeout=0.1)
-
-        # Start new unified generator
-        self._gen_proc = self._ctx.Process(
-            target=unified_generator,
-            args=(
-                self.ready_meta,
-                self.ready_head,
-                self.ready_tail,
-                self.ready_free,
-                self.ready_items,
-                self.running_event,
-                self.reset_event,
-                self.cfg.width,
-                self.cfg.height,
-                name,
-                params,
-            ),
-            name="GeneratorProcess",
-        )
-        self._gen_proc.start()
+    async def configure_animation(self, params: dict[str, Any]) -> None:
+        """Update params on the running animation without restarting it."""
+        self._configure_request = params

@@ -11,12 +11,9 @@ from aioserial import AioSerial
 from serial import SerialException
 
 from flipdisc.config import SerialConfig
-from flipdisc.core.exceptions import SerialConnectionError
+from flipdisc.exceptions import SerialConnectionError
 
 logger = logging.getLogger(__name__)
-
-
-## Using shared SerialConnectionError from core.exceptions
 
 
 class SerialTransport(ABC):

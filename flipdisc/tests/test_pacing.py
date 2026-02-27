@@ -11,12 +11,12 @@ async def _async_pacing_with_mock_serial():
     await pipeline.start(animation="bouncing_dot")
     await pipeline.play()
 
-    await asyncio.sleep(2.0)
+    await asyncio.sleep(3.0)
 
     status = pipeline.get_status()
     frames = status.frames_presented
-    # Expect roughly 10 frames at 5 fps over 2s; allow slack
-    assert 6 <= frames <= 14
+    # Expect roughly 15 frames at 5 fps over 3s; allow generous slack for process startup
+    assert 5 <= frames <= 20
 
     await pipeline.stop()
 

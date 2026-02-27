@@ -1,14 +1,14 @@
 # Flip-Disc (Python, single-Pi)
 
-A fast, robust flip-dot display controller written 100% in Python. It runs on a single Raspberry Pi (or any Linux box), exposes a FastAPI HTTP interface, spawns animation generation and post-processing processes, and drives flip-dot panels over RS-485 with a small, protocol-correct encoder.
+A fast, robust flip-dot display controller written 100% in Python. It runs on a single Raspberry Pi (or any Linux box), exposes a FastAPI HTTP interface, runs animation generation in a background thread, and drives flip-dot panels over RS-485 with a small, protocol-correct encoder.
 
 Highlights
 - Async display presenter with deadline-based timing that paces the display (default 20 FPS) and owns serial I/O
-- Zero-copy shared memory rings for high-performance inter-process communication
-- Multiprocessing pipeline with cooperative shutdown: Generator → PostProcessor → Presenter
+- Threaded generator with `queue.Queue` frame buffer for smooth, backpressure-aware animation delivery
+- Lightweight animation switching — no process restarts, just a reference swap and queue drain
 - Segmented panel writes + proper flush semantics (7x7 immediate refresh; 14x7/28x7 buffered + flush)
 - Preview isolation via asyncio queues prevents UI callbacks from blocking the main presenter loop
-- Clean separation: engine (runtime), hardware (protocol/transport), animations (step/render), core (exceptions)
+- Clean separation: engine (pipeline), hardware (protocol/transport), animations (step/render), web (API/UI)
 
 
 ## Quick Start
@@ -28,13 +28,17 @@ Run the server (mock serial by default):
 uv run python -m flipdisc run-server --config config.toml --host 0.0.0.0 --port 8000
 ```
 
+Run with hot reload for development (auto-restarts on file changes):
+```bash
+uv run python -m flipdisc run-server --reload
+```
+
 Endpoints @`http://localhost:8000`:
 - [Status](http://localhost:8000/status): `/status`
 - [API Docs](http://localhost:8000/docs): `/docs`
 - [List animations](http://localhost:8000/animations): `/animations`
 - [Start animation](http://localhost:8000/anim/bouncing_dot): `/anim/bouncing_dot`(POST)
 - [Set refresh rate](http://localhost:8000/fps?new_fps=15): `/fps?new_fps=15` (POST)
-- [Send test pattern](http://localhost:8000/display/test/checkerboard): `/test/checkerboard` (POST)
 - [Web UI](http://localhost:8000/ui): `/ui` (static page served by FastAPI)
 
 
@@ -68,47 +72,48 @@ Notes
 - address_base sets the starting panel address and increments per panel in row-major order.
 
 
-## Project Layout (ascii)
+## Project Layout
 
 ```
 flip-disc/
-├─ app.py                     # Wrapper: runs flipdisc.app:main()
 ├─ config.toml                # Example configuration (TOML)
 ├─ pyproject.toml             # Package + tooling (ruff, pytest)
 ├─ README.md
 └─ flipdisc/
    ├─ __main__.py             # `python -m flipdisc`
    ├─ __init__.py
-   ├─ app.py                  # Orchestrates engine lifecycle
-   ├─ cli.py                  # Small CLI: run-server
-   ├─ logging_conf.py
+   ├─ app.py                  # Application orchestrator (wires pipeline + API)
+   ├─ cli.py                  # CLI: run-server, preview
    ├─ config.py               # Config loading + validation (TOML)
-   ├─ core/
-   │  └─ exceptions.py        # Project-wide exceptions
-   ├─ engine/                 # Long-lived runtime components
-   │  ├─ api_server.py        # FastAPI endpoints
-   │  ├─ pipeline.py          # Orchestrator (generator → postproc → presenter)
-   │  ├─ shared_ring.py       # SPSC shared memory ring buffers
-   │  └─ processes/
-   │     ├─ generator.py      # Animation generation process
-   │     └─ postproc.py       # Post-processing (dithering) process
-   ├─ animations/
-   │  ├─ base.py              # Animation interface (step/render_gray/config/reset)
+   ├─ exceptions.py           # Project-wide exception hierarchy
+   ├─ logging_conf.py
+   ├─ engine/                 # Pipeline runtime
+   │  └─ pipeline.py          # DisplayPipeline: generator thread + async presenter
+   ├─ animations/             # Animation plugins
+   │  ├─ base.py              # Animation ABC, registry, factory
    │  ├─ bouncing_dot.py
    │  ├─ life.py
-   │  └─ pendulum.py
-   ├─ hardware/
-   │  ├─ formats.py           # Encoder (panel msgs + flush)
+   │  ├─ pendulum.py
+   │  ├─ simplex_noise.py
+   │  └─ wireframe_cube.py
+   ├─ hardware/               # RS-485 protocol + serial transport
    │  ├─ spec.py              # Protocol enums, command map, constants
-   │  ├─ panel_map.py         # Slice canvas to per-panel bitmaps
-   │  └─ transport/
-   │     └─ serial.py         # Serial transports (hardware/mock)
-   ├─ gfx/
-   │  └─ dither.py            # Ordered Bayer, error diffusion, threshold
+   │  ├─ formats.py           # Low-level encoder (panel msgs + flush)
+   │  ├─ protocol.py          # High-level ProtocolEncoder facade
+   │  ├─ panel_map.py         # Slice canvas into per-panel bitmaps
+   │  └─ serial.py            # Serial transports (hardware + mock)
+   ├─ gfx/                    # Graphics / post-processing
+   │  └─ postprocessing.py    # Binarize, dither, blur, sharpen, threshold
+   ├─ web/                    # HTTP API + Web UI
+   │  ├─ api_server.py        # FastAPI endpoints + WebSocket preview
+   │  ├─ index.html           # Web UI template
+   │  └─ static/              # JS + CSS assets
+   │     ├─ app.js
+   │     └─ styles.css
    └─ tests/
-      ├─ test_basic.py        # Basic hardware/anim/worker assertions
-      ├─ test_formats.py      # Golden tests for formats/packing
-      └─ test_pacing.py       # Pacing smoke test with MockSerial
+      ├─ test_basic.py        # Pipeline + animation smoke tests
+      ├─ test_formats.py      # Golden tests for protocol encoding
+      └─ test_pacing.py       # Frame pacing smoke test
 ```
 
 
@@ -119,20 +124,17 @@ sequenceDiagram
     autonumber
     participant API as ApiServer
     participant Pipeline as DisplayPipeline
-    participant Gen as Generator Process
-    participant Post as PostProcessor Process
+    participant Gen as Generator Thread
     participant Present as Presenter
     participant Serial as SerialTransport
     participant Panels as Hardware
 
     API->>Pipeline: POST /anim/{name}
-    Pipeline->>Gen: Start animation generation
-    Pipeline->>Post: Start post-processing
+    Pipeline->>Gen: Set animation request
 
     Note over Present: Presenter ticks @ refresh_rate
     loop Every Frame
-        Gen->>Post: Grayscale frame (via shared_ring)
-        Post->>Present: Binary frame (via shared_ring)
+        Gen->>Present: Frame (via queue.Queue)
         Present->>Serial: Encode + write batch
         alt panels 7x7
             Serial->>Panels: Immediate refresh per panel
@@ -157,22 +159,26 @@ uv run ruff format
 uv run ruff check --fix
 ```
 
+Dev server with hot reload:
+```bash
+uv run python -m flipdisc run-server --reload
+```
+
 Tips
-- The app uses the multiprocessing "fork" start method on macOS for better performance, "spawn" elsewhere.
 - Exception handling follows "log at level of knowledge": lower layers raise typed errors with context; top-level decides severity.
 - Mock serial is on by default; set `mock=false` to write to real hardware.
-- Shared memory rings provide zero-copy communication between animation generation and presentation processes.
-- Cooperative shutdown prevents data corruption during process termination; processes are given time to clean up before forced termination.
+- The generator thread uses `queue.Queue(maxsize=N)` for natural backpressure — it blocks when the buffer is full, resumes when the presenter consumes a frame.
+- Animation switching is a lightweight reference swap: the main thread sets a request, the generator thread drains the queue and creates the new animation. No thread restart needed.
+- NumPy releases the GIL during array operations, so the background thread provides real concurrency for compute-heavy animations.
 
 
 ## API (selected)
 
-- GET `/status`: pipeline status (running, playing, frames_presented) + ring buffer status
+- GET `/status`: pipeline status (running, playing, frames_presented, buffer_capacity)
 - GET `/animations` -> { animations }
 - POST `/anim/{name}` -> start animation
 - POST `/animations/configure` -> set params on current animation
 - POST `/animations/reset`
 - GET `/fps` -> { refresh_rate }
 - POST `/fps?new_fps=20` -> update refresh rate atomically
-- POST `/display/test/{pattern}` -> checkerboard | solid | clear
 - POST `/serial/reconnect`

@@ -12,7 +12,7 @@ class Pendulum(Animation):
     """Simple pendulum physics simulation."""
 
     def __init__(self, width: int, height: int):
-        super().__init__(width, height, output_format="gray", processing_steps=("dither",))
+        super().__init__(width, height, processing_steps=("dither",))
 
         # Pendulum physics parameters
         self.length = min(width, height) * 0.4  # Pendulum length in pixels

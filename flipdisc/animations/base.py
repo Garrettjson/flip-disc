@@ -1,31 +1,32 @@
 """Base animation interface for flip-disc displays."""
 
-import time
 from abc import ABC, abstractmethod
-from typing import Any, Literal
+from typing import Any
 
 import numpy as np
 
-from flipdisc.core.exceptions import AnimationError
-
-OutputFormat = Literal["gray", "binary"]
+from flipdisc.exceptions import AnimationError
 
 
 class Animation(ABC):
-    """
-    Base class for all flip-disc animations.
+    """Base class for all flip-disc animations.
 
-    This matches the interface from your outline:
-    - step(dt) advances the simulation
-    - render_gray() returns grayscale frame
-    - configure() sets animation parameters
-    - reset() resets animation state
-    - output_format declares whether animation outputs "gray" or "binary"
+    Subclasses implement:
+    - step(dt): advance simulation by dt seconds
+    - render_gray(): return grayscale frame as (height, width) float32 array [0, 1]
+
+    Optional overrides:
+    - configure(**params): set animation-specific parameters
+    - reset(seed): reset to initial state
+    - is_complete(): return True for finite animations
     """
 
-    def __init__(self, width: int, height: int,
-                 output_format: OutputFormat = "gray",
-                 processing_steps: tuple[str, ...] | None = ("binarize",)):
+    def __init__(
+        self,
+        width: int,
+        height: int,
+        processing_steps: tuple[str, ...] | None = ("binarize",),
+    ):
         if width <= 0 or height <= 0:
             raise AnimationError(
                 f"Animation dimensions must be positive: {width}x{height}"
@@ -33,11 +34,10 @@ class Animation(ABC):
 
         self.width = width
         self.height = height
-        self.output_format = output_format
         self.processing_steps = processing_steps
-        self.start_time = time.time()
         self.current_time = 0.0
         self.params: dict[str, Any] = {}
+        self._completed = False
 
     @abstractmethod
     def step(self, dt: float) -> None:
@@ -58,35 +58,20 @@ class Animation(ABC):
             Shape should be (height, width)
         """
 
-    def configure(self, **params: Any) -> None:
-        """
-        Configure animation parameters.
+    def is_complete(self) -> bool:
+        """Check if animation has finished (default: never completes)."""
+        return self._completed
 
-        Args:
-            **params: Animation-specific parameters
-        """
+    def configure(self, **params: Any) -> None:
+        """Configure animation parameters."""
         self.params.update(params)
 
     def reset(self, seed: int | None = None) -> None:
-        """
-        Reset animation to initial state.
-
-        Args:
-            seed: Optional random seed for deterministic behavior
-        """
-        self.start_time = time.time()
+        """Reset animation to initial state."""
         self.current_time = 0.0
+        self._completed = False
         if seed is not None:
             np.random.seed(seed)
-
-    def get_info(self) -> dict[str, Any]:
-        """Get animation info and current parameters."""
-        return {
-            "name": self.__class__.__name__.lower(),
-            "dimensions": (self.width, self.height),
-            "current_time": self.current_time,
-            "params": self.params.copy(),
-        }
 
 
 # Animation registry for worker processes

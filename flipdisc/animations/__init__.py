@@ -1,7 +1,7 @@
 """Animation module for flip-disc displays."""
 
 # Import all animations to register them
-from . import bouncing_dot, life, pendulum, simplex_noise
+from . import bouncing_dot, life, pendulum, simplex_noise, wireframe_cube
 from .base import Animation, get_animation, list_animations, register_animation
 
 __all__ = [
@@ -12,4 +12,6 @@ __all__ = [
     "list_animations",
     "pendulum",
     "register_animation",
+    "simplex_noise",
+    "wireframe_cube",
 ]

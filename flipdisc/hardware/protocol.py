@@ -12,21 +12,9 @@ import numpy as np
 
 from flipdisc.config import DisplayConfig
 
-from .formats import (
-    encode_flush as _encode_flush,
-)
-from .formats import (
-    encode_panel_message as _encode_panel_message,
-)
-from .formats import (
-    panel_bits_to_column_bytes as _panel_bits_to_column_bytes,
-)
-from .spec import (
-    data_bytes_from_panel_size,
-    supports_buffered_refresh,
-)
-
-# Mapping and helpers imported from spec.py
+from .formats import encode_flush as _encode_flush
+from .formats import encode_panel_message as _encode_panel_message
+from .spec import data_bytes_from_panel_size, supports_buffered_refresh
 
 
 class ProtocolEncoder:
@@ -42,9 +30,6 @@ class ProtocolEncoder:
     @property
     def supports_buffered(self) -> bool:
         return self._supports_buffered
-
-    def panel_payload(self, panel_bits: np.ndarray) -> bytes:
-        return _panel_bits_to_column_bytes(panel_bits)
 
     def encode_panel(
         self, panel_bits: np.ndarray, address: int, refresh: bool | None = None

@@ -11,7 +11,7 @@ class SimplexNoise(Animation):
     """Animated simplex noise pattern."""
 
     def __init__(self, width: int, height: int):
-        super().__init__(width, height, output_format="gray", processing_steps=("binarize",))
+        super().__init__(width, height, processing_steps=("binarize",))
 
         # Parameters
         self.scale = 4.0  # Spatial scale of the noise
@@ -39,7 +39,9 @@ class SimplexNoise(Animation):
     def render_gray(self) -> np.ndarray:
         """Render simplex noise to grayscale."""
         # Generate noise using noise3array
-        arr = noise3array(self.x / self.scale, self.y / self.scale, np.array([self.i]))[0, :, :]
+        arr = noise3array(self.x / self.scale, self.y / self.scale, np.array([self.i]))[
+            0, :, :
+        ]
 
         # Map from [-1, 1] to [0, 1]
         frame = (arr + 1.0) / 2.0

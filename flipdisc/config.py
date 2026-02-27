@@ -4,7 +4,7 @@ import tomllib
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from .core.exceptions import ConfigurationError
+from .exceptions import ConfigurationError
 
 
 @dataclass
@@ -19,11 +19,12 @@ class SerialConfig:
 
 @dataclass
 class DisplayConfig:
-    """Display configuration with TOML support."""
+    """Display configuration.
 
-    # Display dimensions
-    width: int = 28
-    height: int = 28
+    Canvas dimensions (width/height) are always derived from the panel grid:
+    width = panel_w * columns, height = panel_h * rows.
+    """
+
     refresh_rate: float = 20.0
     buffer_duration: float = 0.5
 
@@ -38,11 +39,6 @@ class DisplayConfig:
     address_base: int = 1
 
     def __post_init__(self):
-        # Validation
-        if self.width <= 0 or self.height <= 0:
-            raise ConfigurationError(
-                f"Display dimensions must be positive: {self.width}x{self.height}"
-            )
         if self.refresh_rate <= 0:
             raise ConfigurationError(
                 f"Refresh rate must be positive: {self.refresh_rate}"
@@ -51,8 +47,6 @@ class DisplayConfig:
             raise ConfigurationError(
                 f"Buffer duration must be positive: {self.buffer_duration}"
             )
-
-        # Ensure panel settings are positive
         if self.panel_w <= 0 or self.panel_h <= 0:
             raise ConfigurationError(
                 f"Panel dimensions must be positive: {self.panel_w}x{self.panel_h}"
@@ -62,12 +56,13 @@ class DisplayConfig:
                 f"Panel grid must be positive: {self.columns}x{self.rows}"
             )
 
-        # Keep width/height consistent with panel grid
-        expected_w = self.panel_w * self.columns
-        expected_h = self.panel_h * self.rows
-        # If provided width/height differ, prefer panel grid to derive canvas size
-        self.width = expected_w
-        self.height = expected_h
+    @property
+    def width(self) -> int:
+        return self.panel_w * self.columns
+
+    @property
+    def height(self) -> int:
+        return self.panel_h * self.rows
 
 
 def default_config() -> DisplayConfig:
@@ -78,13 +73,11 @@ def default_config() -> DisplayConfig:
 def load_config(config_path: str | None = None) -> DisplayConfig:
     """Load config from TOML file or return default."""
     if config_path is None:
-        # Look for default config files
         for path in ["config.toml", "flipdisc.toml"]:
             if Path(path).exists():
                 config_path = path
                 break
         else:
-            # No config file found, use defaults
             return default_config()
 
     config_file = Path(config_path)
@@ -106,22 +99,13 @@ def _parse_config(data: dict) -> DisplayConfig:
         display_section = data.get("display", {})
         serial_section = data.get("serial", {})
 
-        # Handle panel-based configuration
+        # Parse panel dimensions from panel_type string
         panel_type = display_section.get("panel_type", "14x7")
-        columns = display_section.get("columns", 2)
-        rows = display_section.get("rows", 4)
-
-        # Parse panel dimensions
         try:
             panel_w, panel_h = map(int, panel_type.split("x"))
         except ValueError as e:
             raise ConfigurationError(f"Invalid panel_type format: {panel_type}") from e
 
-        # Calculate total dimensions
-        width = panel_w * columns
-        height = panel_h * rows
-
-        # Build serial config
         serial_config = SerialConfig(
             port=serial_section.get("port", "/dev/ttyUSB0"),
             baudrate=serial_section.get("baudrate", 9600),
@@ -130,15 +114,13 @@ def _parse_config(data: dict) -> DisplayConfig:
         )
 
         return DisplayConfig(
-            width=width,
-            height=height,
             refresh_rate=display_section.get("refresh_rate", 20.0),
             buffer_duration=display_section.get("buffer_duration", 0.5),
             serial=serial_config,
             panel_w=panel_w,
             panel_h=panel_h,
-            columns=columns,
-            rows=rows,
+            columns=display_section.get("columns", 2),
+            rows=display_section.get("rows", 4),
             address_base=display_section.get("address_base", 1),
         )
 

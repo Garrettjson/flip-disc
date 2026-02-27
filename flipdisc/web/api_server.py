@@ -12,13 +12,14 @@ from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
 
-from flipdisc.config import DisplayConfig
-from flipdisc.core.exceptions import AnimationError
 from flipdisc.animations import list_animations as list_animation_names
-
-from .pipeline import DisplayPipeline
+from flipdisc.config import DisplayConfig
+from flipdisc.engine.pipeline import DisplayPipeline
+from flipdisc.exceptions import AnimationError
 
 logger = logging.getLogger(__name__)
+
+_WEB_DIR = Path(__file__).resolve().parent
 
 
 class ApiServer:
@@ -30,8 +31,7 @@ class ApiServer:
 
         self.app = FastAPI(title="Flip-Disc Controller", version="0.2.0")
         # Mount static assets for UI
-        web_dir = Path(__file__).resolve().parent.parent / "web"
-        static_dir = web_dir / "static"
+        static_dir = _WEB_DIR / "static"
         if static_dir.exists():
             self.app.mount(
                 "/static", StaticFiles(directory=str(static_dir)), name="static"
@@ -57,7 +57,7 @@ class ApiServer:
                         "running": st.running,
                         "playing": st.playing,
                         "frames_presented": st.frames_presented,
-                        "ready_ring": st.ready_ring,
+                        "buffer_capacity": st.buffer_capacity,
                         "serial_connected": self.pipeline.serial.is_connected(),
                     },
                     "config": {
@@ -79,32 +79,17 @@ class ApiServer:
                 logger.error(f"Error listing animations: {e}")
                 raise HTTPException(500, f"Failed to list animations: {e}") from e
 
-        @self.app.post("/animations/{name}/start")
-        async def start_animation(name: str):
-            try:
-                if not self.pipeline.running:
-                    await self.pipeline.start(animation=name)
-                else:
-                    await self.pipeline.set_animation(name)
-                await self.pipeline.play()
-                return {"message": f"Started animation: {name}"}
-            except AnimationError as e:
-                logger.error(f"Animation error: {e}")
-                raise HTTPException(400, str(e)) from e
-            except Exception as e:
-                logger.error(f"Unexpected error starting animation: {e}")
-                raise HTTPException(500, f"Failed to start animation: {e}") from e
-
         @self.app.post("/animations/configure")
         async def configure_animation(params: dict):
             try:
-                # For now, reapply animation with new params (restart generator)
-                # If no current animation context, start pipeline with defaults
-                name = params.pop("name", "bouncing_dot")
+                # Update params on the running animation without restarting it
+                name = params.pop("name", None)
                 if not self.pipeline.running:
-                    await self.pipeline.start(animation=name, params=params)
+                    await self.pipeline.start(
+                        animation=name or "bouncing_dot", params=params
+                    )
                 else:
-                    await self.pipeline.set_animation(name, params)
+                    await self.pipeline.configure_animation(params)
                 return {"message": "Configured animation", "params": params}
             except AnimationError as e:
                 logger.error(f"Animation configuration error: {e}")
@@ -131,9 +116,8 @@ class ApiServer:
                 logger.error(f"Error stopping animation: {e}")
                 raise HTTPException(500, f"Failed to stop animation: {e}") from e
 
-        # Alias endpoint: singular form for convenience
         @self.app.post("/anim/{name}")
-        async def start_animation_alias(name: str):
+        async def start_animation(name: str):
             try:
                 if not self.pipeline.running:
                     await self.pipeline.start(animation=name)
@@ -170,19 +154,6 @@ class ApiServer:
                 logger.error(f"Error reconnecting serial: {e}")
                 raise HTTPException(500, f"Failed to reconnect serial: {e}") from e
 
-        @self.app.post("/display/test/{pattern}")
-        async def display_test_pattern(pattern: str):
-            if pattern not in ["checkerboard", "solid", "clear"]:
-                raise HTTPException(400, f"Unknown pattern: {pattern}")
-
-            try:
-                # Use pipeline set_animation with synthetic test generators in the future.
-                # For now this endpoint is a no-op or could be implemented via restarting with a test pattern.
-                return {"message": f"Test pattern endpoint pending: {pattern}"}
-            except Exception as e:
-                logger.error(f"Error displaying test pattern: {e}")
-                raise HTTPException(500, f"Failed to display pattern: {e}") from e
-
         # WebSocket preview endpoint
         @self.app.websocket("/ws/preview")
         async def preview_websocket(websocket: WebSocket):
@@ -204,7 +175,7 @@ class ApiServer:
                     await frame_available.wait()
                     frame_available.clear()
 
-                    # Get the latest frame from ring buffer and serialize only now
+                    # Get the latest frame and serialize only now
                     bits = self.pipeline.get_last_frame_bits()
                     if bits is not None:
                         # Convert to format expected by JavaScript
@@ -227,8 +198,7 @@ class ApiServer:
         # UI index
         @self.app.get("/ui")
         async def ui():
-            web_dir = Path(__file__).resolve().parent.parent / "web"
-            index_file = web_dir / "index.html"
+            index_file = _WEB_DIR / "index.html"
             if index_file.exists():
                 return HTMLResponse(index_file.read_text(encoding="utf-8"))
             raise HTTPException(404, "UI not available")

@@ -10,7 +10,7 @@ class BouncingDot(Animation):
     """Simple bouncing dot"""
 
     def __init__(self, width: int, height: int):
-        super().__init__(width, height, output_format="binary", processing_steps=("binarize",))
+        super().__init__(width, height, processing_steps=("binarize",))
 
         # Dot position (discrete pixel coordinates)
         self.x = 2
