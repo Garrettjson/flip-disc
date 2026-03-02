@@ -72,6 +72,33 @@ Notes
 - address_base sets the starting panel address and increments per panel in row-major order.
 
 
+## Fonts
+
+Font metadata lives in `assets/text/fonts.toml`. Each section defines the parsing params for one bitmap sprite sheet:
+
+```toml
+[standard]
+path = "assets/text/standard.bmp"
+letter_width = 5
+letter_height = 7
+padding = 1
+margin = 1
+ascii_start = 32
+letters = 95
+```
+
+Load a font by name in code:
+
+```python
+from flipdisc.fonts.loader import load_font
+
+font = load_font("standard")   # 5×7, 95 glyphs
+font = load_font("compact")    # 3×5, smaller glyph set
+```
+
+To add a new font, drop a BMP sprite sheet in `assets/text/` and add a matching section to `fonts.toml`.
+
+
 ## Project Layout
 
 ```
@@ -79,6 +106,11 @@ flip-disc/
 ├─ config.toml                # Example configuration (TOML)
 ├─ pyproject.toml             # Package + tooling (ruff, pytest)
 ├─ README.md
+├─ assets/
+│  └─ text/
+│     ├─ fonts.toml           # Font registry (parsing params per font)
+│     ├─ standard.bmp         # 5×7 bitmap font sprite sheet (95 glyphs)
+│     └─ compact.bmp          # 3×5 bitmap font sprite sheet
 └─ flipdisc/
    ├─ __main__.py             # `python -m flipdisc`
    ├─ __init__.py
@@ -95,7 +127,10 @@ flip-disc/
    │  ├─ life.py
    │  ├─ pendulum.py
    │  ├─ simplex_noise.py
+   │  ├─ text.py              # Text animation (static, scroll_left/up/down)
    │  └─ wireframe_cube.py
+   ├─ fonts/                  # Bitmap font loading
+   │  └─ loader.py            # BitmapFont class + load_font(name) factory
    ├─ hardware/               # RS-485 protocol + serial transport
    │  ├─ spec.py              # Protocol enums, command map, constants
    │  ├─ formats.py           # Low-level encoder (panel msgs + flush)
@@ -112,8 +147,10 @@ flip-disc/
    │     └─ styles.css
    └─ tests/
       ├─ test_basic.py        # Pipeline + animation smoke tests
+      ├─ test_fonts.py        # Font loading + text rendering tests
       ├─ test_formats.py      # Golden tests for protocol encoding
-      └─ test_pacing.py       # Frame pacing smoke test
+      ├─ test_pacing.py       # Frame pacing smoke test
+      └─ test_text_animation.py
 ```
 
 

@@ -6,6 +6,7 @@ import asyncio
 import contextlib
 import json
 import logging
+import tomllib
 from pathlib import Path
 from typing import Annotated
 
@@ -18,6 +19,7 @@ from flipdisc.animations import list_animations as list_animation_names
 from flipdisc.config import DisplayConfig
 from flipdisc.engine.pipeline import DisplayPipeline
 from flipdisc.exceptions import AnimationError
+from flipdisc.fonts.loader import _FONTS_CONFIG
 
 logger = logging.getLogger(__name__)
 
@@ -80,6 +82,16 @@ class ApiServer:
             except Exception as e:
                 logger.error(f"Error listing animations: {e}")
                 raise HTTPException(500, f"Failed to list animations: {e}") from e
+
+        @self.app.get("/fonts")
+        async def list_fonts():
+            try:
+                with Path(_FONTS_CONFIG).open("rb") as f:
+                    config = tomllib.load(f)
+                return {"fonts": list(config.keys())}
+            except Exception as e:
+                logger.error(f"Error listing fonts: {e}")
+                raise HTTPException(500, f"Failed to list fonts: {e}") from e
 
         @self.app.post("/animations/configure")
         async def configure_animation(params: dict):

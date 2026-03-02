@@ -1,9 +1,12 @@
 """Bitmap font loader for flip-disc text rendering."""
 
+import tomllib
 from pathlib import Path
 
 import numpy as np
 from skimage.io import imread
+
+_FONTS_CONFIG = "assets/text/fonts.toml"
 
 
 class BitmapFont:
@@ -23,19 +26,10 @@ class BitmapFont:
         self.letter_height = letter_height
         self._glyphs: dict[str, np.ndarray] = {}
 
-        img = imread(str(Path(path)))
-
-        # Convert to grayscale float if needed
-        if img.ndim == 3:
-            # Use luminance from first channel (white-on-black BMP)
-            img = img[:, :, 0].astype(np.float32) / 255.0
-        else:
-            img = img.astype(np.float32) / 255.0
+        img = imread(str(Path(path)), as_gray=True).astype(np.float32)
 
         cell_w = letter_width + padding + margin
         cell_h = letter_height + padding + margin
-        # +margin makes the formula work whether the image has a trailing margin
-        # pixel on the right edge or not (both old and new compact layouts).
         cols = (img.shape[1] + margin) // cell_w
 
         for i in range(letters):
@@ -163,3 +157,20 @@ class BitmapFont:
             remaining = remaining[split_at:]
 
         return chunks
+
+
+def load_font(name: str, config_path: str = _FONTS_CONFIG) -> "BitmapFont":
+    """Load a named font from the fonts TOML config.
+
+    Args:
+        name: Font name as defined in the TOML (e.g. "standard", "compact").
+        config_path: Path to fonts.toml, relative to the project root.
+
+    Returns:
+        A configured BitmapFont instance.
+    """
+    with Path(config_path).open("rb") as f:
+        config = tomllib.load(f)
+    if name not in config:
+        raise KeyError(f"Font '{name}' not found in {config_path}")
+    return BitmapFont(**config[name])

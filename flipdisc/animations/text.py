@@ -2,7 +2,7 @@
 
 import numpy as np
 
-from flipdisc.fonts.loader import BitmapFont
+from flipdisc.fonts.loader import load_font
 
 from .base import Animation, register_animation
 
@@ -15,7 +15,7 @@ class TextAnimation(Animation):
 
     def __init__(self, width: int, height: int):
         super().__init__(width, height, processing_steps=("binarize",))
-        self._font = BitmapFont()
+        self._font = load_font("standard")
         self._text_image: np.ndarray | None = None
         self._mode: str = "static"
         self._speed: float = 20.0
@@ -25,6 +25,8 @@ class TextAnimation(Animation):
 
     def configure(self, **params) -> None:
         super().configure(**params)
+        if "font" in params:
+            self._font = load_font(params["font"])
         if "mode" in params:
             mode = params["mode"]
             if mode not in _VALID_MODES:
@@ -36,7 +38,7 @@ class TextAnimation(Animation):
             self._speed = float(params["speed"])
         if "loop" in params:
             self._loop = bool(params["loop"])
-        if "text" in params or "mode" in params:
+        if "text" in params or "mode" in params or "font" in params:
             self._rebuild()
 
     def _rebuild(self) -> None:

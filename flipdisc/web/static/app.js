@@ -14,6 +14,8 @@ async function postJSON(path, payload) {
   return res.json();
 }
 
+let availableFonts = ['standard'];
+
 // UI elements
 const runningEl = document.getElementById('running');
 const connectedEl = document.getElementById('connected');
@@ -88,6 +90,7 @@ function getAnimationParams(animationName) {
     text: [
       { name: 'text', label: 'Text', type: 'text', value: 'HELLO' },
       { name: 'mode', label: 'Mode', type: 'select', options: ['static', 'scroll_left', 'scroll_up', 'scroll_down'], value: 'scroll_left' },
+      { name: 'font', label: 'Font', type: 'select', options: availableFonts, value: availableFonts[0] },
       { name: 'speed', label: 'Speed', type: 'number', min: 1, max: 100, step: 1, value: 20 },
       { name: 'loop', label: 'Loop', type: 'checkbox', value: true }
     ]
@@ -267,6 +270,10 @@ animSelect.addEventListener('change', updateAnimationParams);
 
 // Init
 (async function init() {
+  try {
+    const data = await fetchJSON('/fonts');
+    if (data.fonts && data.fonts.length > 0) availableFonts = data.fonts;
+  } catch (_) { /* keep default */ }
   await loadAnimations();
   // Auto-select first animation if available
   if (animSelect.options.length > 0 && !animSelect.value) {

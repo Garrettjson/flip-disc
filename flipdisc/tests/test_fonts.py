@@ -1,8 +1,9 @@
 """Tests for bitmap font loading and text rendering."""
 
 import numpy as np
+import pytest
 
-from flipdisc.fonts.loader import BitmapFont
+from flipdisc.fonts.loader import BitmapFont, load_font
 
 
 def test_glyph_loading():
@@ -82,3 +83,40 @@ def test_render_line_spacing_zero():
     font = BitmapFont()
     result = font.render_line("AB", spacing=0)
     assert result.shape == (7, 10)  # 2 * 5px, no spacing
+
+
+# --- load_font ---
+
+
+def test_load_font_standard():
+    font = load_font("standard")
+    assert font.letter_width == 5
+    assert font.letter_height == 7
+    assert len(font._glyphs) == 95
+
+
+def test_load_font_compact():
+    font = load_font("compact")
+    assert font.letter_width == 3
+    assert font.letter_height == 5
+    assert font.get_glyph("A").shape == (5, 3)
+    assert font.get_glyph(" ").sum() == 0  # space is a blank glyph
+
+
+def test_compact_glyph_y():
+    """'y' pixel pattern: top merge, then descender curving left."""
+    font = load_font("compact")
+    glyph = (font.get_glyph("y") > 0.5).astype(int).tolist()
+    expected = [
+        [0, 0, 0],
+        [1, 0, 1],
+        [1, 1, 1],
+        [0, 0, 1],
+        [1, 1, 0],
+    ]
+    assert glyph == expected, f"Unexpected 'y' shape:\n{glyph}"
+
+
+def test_load_font_unknown_raises():
+    with pytest.raises(KeyError, match="unknown"):
+        load_font("unknown")
