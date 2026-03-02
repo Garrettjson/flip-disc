@@ -3,12 +3,14 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import json
 import logging
 from pathlib import Path
+from typing import Annotated
 
 import uvicorn
-from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
+from fastapi import Body, FastAPI, HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
 
@@ -117,12 +119,15 @@ class ApiServer:
                 raise HTTPException(500, f"Failed to stop animation: {e}") from e
 
         @self.app.post("/anim/{name}")
-        async def start_animation(name: str):
+        async def start_animation(
+            name: str, params: Annotated[dict | None, Body()] = None
+        ):
             try:
+                p = params or {}
                 if not self.pipeline.running:
-                    await self.pipeline.start(animation=name)
+                    await self.pipeline.start(animation=name, params=p)
                 else:
-                    await self.pipeline.set_animation(name)
+                    await self.pipeline.set_animation(name, p)
                 await self.pipeline.play()
                 return {"message": f"Started animation: {name}"}
             except AnimationError as e:
@@ -159,40 +164,52 @@ class ApiServer:
         async def preview_websocket(websocket: WebSocket):
             await websocket.accept()
 
-            # Use asyncio Event to signal when new frames are available
             frame_available = asyncio.Event()
 
             def frame_callback(_bits):
-                # Just signal that a new frame is available, don't serialize yet
                 frame_available.set()
 
-            # Register callback with display pacer
             self.pipeline.set_preview_callback(frame_callback)
 
+            receive_task = asyncio.create_task(websocket.receive())
             try:
                 while True:
-                    # Wait for new frame signal
-                    await frame_available.wait()
+                    frame_task = asyncio.create_task(frame_available.wait())
+                    done, _ = await asyncio.wait(
+                        {frame_task, receive_task},
+                        return_when=asyncio.FIRST_COMPLETED,
+                    )
+
+                    if receive_task in done:
+                        frame_task.cancel()
+                        break
+
+                    # Frame arrived — cancel the (already-done) frame task
+                    # and send the latest frame.
+                    frame_task.cancel()
                     frame_available.clear()
 
-                    # Get the latest frame and serialize only now
                     bits = self.pipeline.get_last_frame_bits()
                     if bits is not None:
-                        # Convert to format expected by JavaScript
                         rows = bits.astype(int).tolist()
-                        preview_data = {
-                            "width": bits.shape[1],
-                            "height": bits.shape[0],
-                            "bits": rows,
-                        }
-                        await websocket.send_text(json.dumps(preview_data))
+                        await websocket.send_text(
+                            json.dumps(
+                                {
+                                    "width": bits.shape[1],
+                                    "height": bits.shape[0],
+                                    "bits": rows,
+                                }
+                            )
+                        )
 
             except WebSocketDisconnect:
                 logger.debug("Preview WebSocket client disconnected")
             except Exception as e:
                 logger.error(f"Preview WebSocket error: {e}")
             finally:
-                # Unregister callback when client disconnects
+                receive_task.cancel()
+                with contextlib.suppress(Exception):
+                    await receive_task
                 self.pipeline.set_preview_callback(None)
 
         # UI index

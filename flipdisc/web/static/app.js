@@ -84,6 +84,12 @@ function getAnimationParams(animationName) {
       { name: 'axis_x', label: 'Axis X', type: 'number', min: 0, max: 2.0, step: 0.1, value: 1.0 },
       { name: 'axis_y', label: 'Axis Y', type: 'number', min: 0, max: 2.0, step: 0.1, value: 0.7 },
       { name: 'axis_z', label: 'Axis Z', type: 'number', min: 0, max: 2.0, step: 0.1, value: 0.3 }
+    ],
+    text: [
+      { name: 'text', label: 'Text', type: 'text', value: 'HELLO' },
+      { name: 'mode', label: 'Mode', type: 'select', options: ['static', 'scroll_left', 'scroll_up', 'scroll_down'], value: 'scroll_left' },
+      { name: 'speed', label: 'Speed', type: 'number', min: 1, max: 100, step: 1, value: 20 },
+      { name: 'loop', label: 'Loop', type: 'checkbox', value: true }
     ]
   };
   return params[animationName] || [];
@@ -120,6 +126,15 @@ function updateAnimationParams() {
         if (opt === param.value) option.selected = true;
         input.appendChild(option);
       });
+    } else if (param.type === 'checkbox') {
+      input = document.createElement('input');
+      input.type = 'checkbox';
+      input.checked = param.value;
+    } else if (param.type === 'text') {
+      input = document.createElement('input');
+      input.type = 'text';
+      input.value = param.value;
+      input.style.width = '160px';
     } else {
       input = document.createElement('input');
       input.type = param.type;
@@ -149,9 +164,13 @@ async function updateAnimationConfig() {
   params.forEach(param => {
     const input = document.getElementById(`param-${param.name}`);
     if (input) {
-      let value = input.value;
-      if (param.type === 'number') {
-        value = parseFloat(value);
+      let value;
+      if (param.type === 'checkbox') {
+        value = input.checked;
+      } else if (param.type === 'number') {
+        value = parseFloat(input.value);
+      } else {
+        value = input.value;
       }
       config[param.name] = value;
     }
@@ -205,7 +224,6 @@ function connectPreviewWS() {
 async function startSelected() {
   const name = animSelect.value;
   if (!name) {
-    // Try selecting the first option if available
     if (animSelect.options.length > 0) {
       animSelect.selectedIndex = 0;
     } else {
@@ -213,7 +231,19 @@ async function startSelected() {
     }
   }
   const sel = animSelect.value;
-  await postJSON(`/anim/${encodeURIComponent(sel)}`);
+
+  const paramDefs = getAnimationParams(sel);
+  const params = {};
+  paramDefs.forEach(param => {
+    const input = document.getElementById(`param-${param.name}`);
+    if (input) {
+      if (param.type === 'checkbox') params[param.name] = input.checked;
+      else if (param.type === 'number') params[param.name] = parseFloat(input.value);
+      else params[param.name] = input.value;
+    }
+  });
+
+  await postJSON(`/anim/${encodeURIComponent(sel)}`, params);
   await refreshStatus();
 }
 async function stopAnimation() {

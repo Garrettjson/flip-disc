@@ -233,11 +233,11 @@ class DisplayPipeline:
         self._running = False
         self._playing = False
 
-        # Stop generator thread
+        # Stop generator thread.
         self._stop_event.set()
         self._play_event.set()  # unblock if waiting on play
         if self._gen_thread is not None:
-            await asyncio.to_thread(self._gen_thread.join, 1.0)
+            self._gen_thread.join(timeout=1.0)
             self._gen_thread = None
 
         # Cancel presenter + preview tasks

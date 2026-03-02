@@ -22,7 +22,7 @@ Install (dev) with uv:
 # Install dependencies (including dev extras) using the lockfile
 uv sync --extra dev
 ```
-
+ 
 Run the server (mock serial by default):
 ```bash
 uv run python -m flipdisc run-server --config config.toml --host 0.0.0.0 --port 8000
