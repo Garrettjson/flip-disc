@@ -25,12 +25,10 @@ def split_canvas_bits_to_panels(
             f"Canvas shape mismatch: expected {expected_shape}, got {canvas_bits.shape}"
         )
 
-    panels: list[np.ndarray] = []
-    for pr in range(cfg.rows):
-        y0 = pr * cfg.panel_h
-        y1 = y0 + cfg.panel_h
-        for pc in range(cfg.columns):
-            x0 = pc * cfg.panel_w
-            x1 = x0 + cfg.panel_w
-            panels.append(canvas_bits[y0:y1, x0:x1])
-    return panels
+    panels = (
+        canvas_bits
+        .reshape(cfg.rows, cfg.panel_h, cfg.columns, cfg.panel_w)
+        .transpose(0, 2, 1, 3)
+        .reshape(-1, cfg.panel_h, cfg.panel_w)
+    )
+    return list(panels)

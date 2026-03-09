@@ -160,23 +160,22 @@ class ComposedAnimation(Animation):
                 layer.anim.render_gray(), layer.anim.processing_steps
             ).astype(np.float32)
 
+            # Clip destination and source regions to canvas bounds once
+            dy0 = max(0, layer.y);  dx0 = max(0, layer.x)
+            dy1 = min(self.height, layer.y + layer.height)
+            dx1 = min(self.width,  layer.x + layer.width)
+            sy0 = dy0 - layer.y;    sx0 = dx0 - layer.x
+            sy1 = sy0 + (dy1 - dy0); sx1 = sx0 + (dx1 - dx0)
+
+            if dy0 >= dy1 or dx0 >= dx1:
+                continue
+
+            dst = canvas[dy0:dy1, dx0:dx1]
+            src = sub[sy0:sy1, sx0:sx1]
             if layer.blend == "add":
-                # Additive: pixels OR together — nothing gets erased
-                src_y0 = max(0, -layer.y)
-                src_x0 = max(0, -layer.x)
-                dst_y0 = max(0, layer.y)
-                dst_x0 = max(0, layer.x)
-                dst_y1 = min(self.height, layer.y + layer.height)
-                dst_x1 = min(self.width, layer.x + layer.width)
-                src_y1 = src_y0 + (dst_y1 - dst_y0)
-                src_x1 = src_x0 + (dst_x1 - dst_x0)
-                if dst_y0 < dst_y1 and dst_x0 < dst_x1:
-                    canvas[dst_y0:dst_y1, dst_x0:dst_x1] = np.maximum(
-                        canvas[dst_y0:dst_y1, dst_x0:dst_x1],
-                        sub[src_y0:src_y1, src_x0:src_x1],
-                    )
-            else:  # "over" — later layers win
-                _blit_region(canvas, sub, layer.x, layer.y)
+                np.maximum(dst, src, out=dst)
+            else:
+                dst[:] = src
 
         return canvas
 

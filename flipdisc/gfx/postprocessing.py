@@ -25,10 +25,7 @@ def sharpen(frame: np.ndarray, strength: float = 1.0) -> np.ndarray:
 
 
 def threshold(frame: np.ndarray, low: float = 0.3, high: float = 0.7) -> np.ndarray:
-    result = frame.copy()
-    result[frame < low] = 0.0
-    result[frame > high] = 1.0
-    return result
+    return np.select([frame < low, frame > high], [0.0, 1.0], default=frame)
 
 
 PROCESSING_FUNCTIONS = {

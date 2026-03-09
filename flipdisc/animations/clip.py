@@ -38,11 +38,9 @@ def _blit_fit(canvas: np.ndarray, src: np.ndarray, mode: str) -> None:
         canvas[:] = src[np.ix_(y_idx, x_idx)]
 
     elif mode == "tile":
-        for dy in range(0, ch, sh):
-            for dx in range(0, cw, sw):
-                h = min(sh, ch - dy)
-                w = min(sw, cw - dx)
-                canvas[dy : dy + h, dx : dx + w] = src[:h, :w]
+        n_y = -(-ch // sh)  # ceiling division
+        n_x = -(-cw // sw)
+        canvas[:] = np.tile(src, (n_y, n_x))[:ch, :cw]
 
 
 @register_animation("clip")

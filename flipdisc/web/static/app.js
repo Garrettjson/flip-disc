@@ -93,6 +93,11 @@ function getAnimationParams(animationName) {
       { name: 'font', label: 'Font', type: 'select', options: availableFonts, value: availableFonts[0] },
       { name: 'speed', label: 'Speed', type: 'number', min: 1, max: 100, step: 1, value: 20 },
       { name: 'loop', label: 'Loop', type: 'checkbox', value: true }
+    ],
+    clock: [
+      { name: 'font', label: 'Font', type: 'select', options: availableFonts, value: availableFonts[0] },
+      { name: 'format', label: 'Format', type: 'select', options: ['24h', '12h'], value: '24h' },
+      { name: 'blink_colon', label: 'Blink Colon', type: 'checkbox', value: false }
     ]
   };
   return params[animationName] || [];

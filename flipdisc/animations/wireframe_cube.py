@@ -100,11 +100,10 @@ class WireframeCube(Animation):
         cx, cy = self.width / 2, self.height / 2
         depth_scale = 6.0  # distance from camera; larger = flatter
 
+        factor = depth_scale / (depth_scale + rotated[:, 2])  # (8,) broadcast
         projected = np.empty((8, 2))
-        for i, (x, y, z) in enumerate(rotated):
-            factor = depth_scale / (depth_scale + z)
-            projected[i, 0] = cx + x * scale * factor
-            projected[i, 1] = cy + y * scale * factor
+        projected[:, 0] = cx + rotated[:, 0] * scale * factor
+        projected[:, 1] = cy + rotated[:, 1] * scale * factor
 
         # Draw edges
         for i0, i1 in _EDGES:
@@ -131,8 +130,8 @@ def _draw_line(frame: np.ndarray, x0: float, y0: float, x1: float, y1: float) ->
     xs = (x1 - x0) / steps
     ys = (y1 - y0) / steps
 
-    for i in range(steps + 1):
-        px = int(x0 + i * xs + 0.5)
-        py = int(y0 + i * ys + 0.5)
-        if 0 <= px < w and 0 <= py < h:
-            frame[py, px] = 1.0
+    i = np.arange(steps + 1)
+    px = np.round(x0 + i * xs).astype(int)
+    py = np.round(y0 + i * ys).astype(int)
+    valid = (px >= 0) & (px < w) & (py >= 0) & (py < h)
+    frame[py[valid], px[valid]] = 1.0
