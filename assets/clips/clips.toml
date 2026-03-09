@@ -1,0 +1,11 @@
+# Clip manifest — mirrors assets/text/fonts.toml
+# Add entries here after generating .npz files via flipdisc.clips.importer.
+#
+# Example entry:
+# [rain]
+# path        = "assets/clips/rain.npz"
+# fps         = 20.0
+# loop        = true
+# description = "14x7 rain sprite"
+# width       = 14
+# height      = 7

@@ -19,6 +19,7 @@ from flipdisc.animations import list_animations as list_animation_names
 from flipdisc.config import DisplayConfig
 from flipdisc.engine.pipeline import DisplayPipeline
 from flipdisc.exceptions import AnimationError
+from flipdisc.clips.loader import _CLIPS_CONFIG, list_clips
 from flipdisc.fonts.loader import _FONTS_CONFIG
 
 logger = logging.getLogger(__name__)
@@ -92,6 +93,28 @@ class ApiServer:
             except Exception as e:
                 logger.error(f"Error listing fonts: {e}")
                 raise HTTPException(500, f"Failed to list fonts: {e}") from e
+
+        @self.app.get("/clips")
+        async def list_clips_route():
+            try:
+                return {"clips": list_clips(_CLIPS_CONFIG)}
+            except Exception as e:
+                logger.error(f"Error listing clips: {e}")
+                raise HTTPException(500, f"Failed to list clips: {e}") from e
+
+        @self.app.get("/images")
+        async def list_images():
+            try:
+                images_dir = Path("assets/images")
+                names = (
+                    [p.stem for p in sorted(images_dir.glob("*.png"))]
+                    if images_dir.exists()
+                    else []
+                )
+                return {"images": names}
+            except Exception as e:
+                logger.error(f"Error listing images: {e}")
+                raise HTTPException(500, f"Failed to list images: {e}") from e
 
         @self.app.post("/animations/configure")
         async def configure_animation(params: dict):
