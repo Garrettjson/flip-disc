@@ -13,6 +13,8 @@ dependencies = [
     "scipy>=1.11.0",
     "scikit-image>=0.22.0",
     "opensimplex>=0.4.5.1",
+    "httpx>=0.27.0",
+    "pillow>=10.0.0",
 ]
 
 [project.optional-dependencies]

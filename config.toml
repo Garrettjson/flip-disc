@@ -11,3 +11,11 @@ port = "/dev/ttyUSB0"
 baudrate = 9600
 timeout = 1.0
 mock = true  # Set to false for real hardware
+
+# Optional: auto-fetch weather and display on the "weather" animation
+# Uncomment and fill in your coordinates to enable the background fetch loop.
+# [weather]
+# latitude = 37.77
+# longitude = -122.41
+# unit = "F"        # "F" or "C"
+# interval_seconds = 600

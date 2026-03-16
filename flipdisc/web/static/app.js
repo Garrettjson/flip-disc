@@ -98,6 +98,11 @@ function getAnimationParams(animationName) {
       { name: 'font', label: 'Font', type: 'select', options: availableFonts, value: availableFonts[0] },
       { name: 'format', label: 'Format', type: 'select', options: ['24h', '12h'], value: '24h' },
       { name: 'blink_colon', label: 'Blink Colon', type: 'checkbox', value: false }
+    ],
+    weather: [
+      { name: 'latitude', label: 'Latitude', type: 'number', step: 0.01, value: 40.71 },
+      { name: 'longitude', label: 'Longitude', type: 'number', step: 0.01, value: -74.01 },
+      { name: 'unit', label: 'Unit', type: 'select', options: ['F', 'C'], value: 'F' }
     ]
   };
   return params[animationName] || [];
@@ -252,6 +257,16 @@ async function startSelected() {
   });
 
   await postJSON(`/anim/${encodeURIComponent(sel)}`, params);
+
+  // For weather, also configure the background fetch loop
+  if (sel === 'weather') {
+    await postJSON('/weather/config', {
+      latitude: params.latitude,
+      longitude: params.longitude,
+      unit: params.unit,
+    });
+  }
+
   await refreshStatus();
 }
 async function stopAnimation() {

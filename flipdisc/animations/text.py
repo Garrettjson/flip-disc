@@ -99,9 +99,8 @@ class TextAnimation(Animation):
         ih, iw = img.shape
 
         if self._mode == "static":
-            # Center on display
             y0 = (self.height - ih) // 2
-            x0 = (self.width - iw) // 2
+            x0 = 0 if self.params.get("align") == "left" else (self.width - iw) // 2
             frame[y0 : y0 + ih, x0 : x0 + iw] = img
             return frame
 

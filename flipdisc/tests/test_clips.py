@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import numpy as np
 import pytest
+from PIL import Image
 
 from flipdisc.animations.bouncing_dot import BouncingDot
 from flipdisc.animations.clip import ClipAnimation, _blit_fit
@@ -22,10 +23,10 @@ def _make_clip_data(n=10, h=7, w=56) -> ClipData:
     return ClipData(frames=frames, fps=20.0, loop=True, width=w, height=h, description="test")
 
 
-def _write_clip_toml(tmp_path, npz_path) -> str:
+def _write_clip_toml(tmp_path, gif_path) -> str:
     toml_path = tmp_path / "clips.toml"
     toml_path.write_text(
-        f'[test]\npath = "{npz_path}"\nfps = 20.0\nloop = true\n'
+        f'[test]\npath = "{gif_path}"\nfps = 20.0\nloop = true\n'
         f'width = 56\nheight = 7\ndescription = "test clip"\n'
     )
     return str(toml_path)
@@ -41,13 +42,31 @@ def _mock_load_clip(clip_data: ClipData):
 # ---------------------------------------------------------------------------
 
 
-def test_load_clip_basic(tmp_path):
-    frames = np.zeros((10, 7, 56), dtype=bool)
-    frames[0, 3, 10] = True
-    npz_path = tmp_path / "test.npz"
-    np.savez_compressed(str(npz_path), frames=frames)
+def _make_test_gif(path, n=10, h=7, w=56) -> None:
+    """Write a minimal animated GIF with n frames at 20 fps."""
+    duration_ms = 50  # 20 fps
+    frames_data = []
+    for i in range(n):
+        f = np.zeros((h, w), dtype=np.uint8)
+        f[i % h, i % w] = 255  # unique pixel per frame so optimizer keeps all frames
+        frames_data.append(f)
+    frames_data[0][3, 10] = 255  # ensure first-frame pixel we assert on is set
+    pil_frames = [Image.fromarray(f).convert("P") for f in frames_data]
+    pil_frames[0].save(
+        str(path),
+        save_all=True,
+        append_images=pil_frames[1:],
+        duration=duration_ms,
+        loop=0,
+        optimize=False,
+    )
 
-    toml_path = _write_clip_toml(tmp_path, npz_path)
+
+def test_load_clip_basic(tmp_path):
+    gif_path = tmp_path / "test.gif"
+    _make_test_gif(gif_path)
+
+    toml_path = _write_clip_toml(tmp_path, gif_path)
     clip = load_clip("test", config_path=toml_path)
 
     assert clip.frames.shape == (10, 7, 56)
@@ -60,10 +79,9 @@ def test_load_clip_basic(tmp_path):
 
 
 def test_load_clip_cached(tmp_path):
-    frames = np.zeros((5, 7, 56), dtype=bool)
-    npz_path = tmp_path / "test.npz"
-    np.savez_compressed(str(npz_path), frames=frames)
-    toml_path = _write_clip_toml(tmp_path, npz_path)
+    gif_path = tmp_path / "test.gif"
+    _make_test_gif(gif_path, n=5)
+    toml_path = _write_clip_toml(tmp_path, gif_path)
 
     clip1 = load_clip("test", config_path=toml_path)
     clip2 = load_clip("test", config_path=toml_path)
@@ -85,7 +103,7 @@ def test_list_clips_empty(tmp_path):
 
 def test_list_clips(tmp_path):
     toml_path = tmp_path / "clips.toml"
-    toml_path.write_text("[alpha]\npath='a.npz'\n[beta]\npath='b.npz'\n")
+    toml_path.write_text("[alpha]\npath='a.gif'\n[beta]\npath='b.gif'\n")
     assert list_clips(str(toml_path)) == ["alpha", "beta"]
 
 
@@ -96,13 +114,20 @@ def test_list_clips(tmp_path):
 
 def test_importer_create_clip_from_animation(tmp_path):
     anim = BouncingDot(56, 7)
-    out = tmp_path / "dot.npz"
+    out = tmp_path / "dot.gif"
     create_clip_from_animation(anim, n_frames=20, dt=0.05, output_path=out)
 
-    data = np.load(str(out))
-    assert "frames" in data
-    assert data["frames"].shape == (20, 7, 56)
-    assert data["frames"].dtype == bool
+    img = Image.open(str(out))
+    frame_count = 0
+    try:
+        while True:
+            frame_count += 1
+            img.seek(img.tell() + 1)
+    except EOFError:
+        pass
+
+    assert frame_count == 20
+    assert img.size == (56, 7)
 
 
 # ---------------------------------------------------------------------------

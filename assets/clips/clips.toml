@@ -1,11 +1,10 @@
-# Clip manifest — mirrors assets/text/fonts.toml
-# Add entries here after generating .npz files via flipdisc.clips.importer.
+# Clip manifest — add entries after generating .gif files via flipdisc.clips.importer.
+# Timing is baked into each GIF; the optional fps key overrides the GIF's embedded duration.
 #
 # Example entry:
 # [rain]
-# path        = "assets/clips/rain.npz"
-# fps         = 20.0
+# path        = "assets/clips/rain.gif"
 # loop        = true
-# description = "14x7 rain sprite"
-# width       = 14
-# height      = 7
+# description = "28x28 rain animation"
+# width       = 28
+# height      = 28

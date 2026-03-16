@@ -21,6 +21,7 @@ from flipdisc.engine.pipeline import DisplayPipeline
 from flipdisc.exceptions import AnimationError
 from flipdisc.clips.loader import _CLIPS_CONFIG, list_clips
 from flipdisc.fonts.loader import _FONTS_CONFIG
+from flipdisc.services.weather import WeatherData, fetch_weather
 
 logger = logging.getLogger(__name__)
 
@@ -33,6 +34,13 @@ class ApiServer:
     def __init__(self, config: DisplayConfig, pipeline: DisplayPipeline) -> None:
         self.config = config
         self.pipeline = pipeline
+
+        # Weather background fetch state
+        self._weather_lat: float | None = None
+        self._weather_lon: float | None = None
+        self._weather_unit: str = "F"
+        self._weather_interval: float = 900.0
+        self._weather_task: asyncio.Task | None = None
 
         self.app = FastAPI(title="Flip-Disc Controller", version="0.2.0")
         # Mount static assets for UI
@@ -194,6 +202,80 @@ class ApiServer:
                 logger.error(f"Error reconnecting serial: {e}")
                 raise HTTPException(500, f"Failed to reconnect serial: {e}") from e
 
+        # ------------------------------------------------------------------
+        # Weather endpoints
+        # ------------------------------------------------------------------
+
+        @self.app.get("/weather/config")
+        async def get_weather_config():
+            return {
+                "latitude": self._weather_lat,
+                "longitude": self._weather_lon,
+                "unit": self._weather_unit,
+                "interval_seconds": self._weather_interval,
+                "active": self._weather_task is not None
+                and not self._weather_task.done(),
+            }
+
+        @self.app.post("/weather/config")
+        async def set_weather_config(params: dict):
+            try:
+                if "latitude" in params:
+                    self._weather_lat = float(params["latitude"])
+                if "longitude" in params:
+                    self._weather_lon = float(params["longitude"])
+                if "unit" in params:
+                    self._weather_unit = str(params["unit"]).upper()
+                if "interval_seconds" in params:
+                    self._weather_interval = float(params["interval_seconds"])
+
+                if self._weather_lat is None or self._weather_lon is None:
+                    raise HTTPException(
+                        400, "latitude and longitude are required to start weather fetch"
+                    )
+                self._restart_weather_loop()
+                return {
+                    "message": "Weather config updated, fetch loop started",
+                    "latitude": self._weather_lat,
+                    "longitude": self._weather_lon,
+                    "unit": self._weather_unit,
+                    "interval_seconds": self._weather_interval,
+                }
+            except HTTPException:
+                raise
+            except Exception as e:
+                logger.error(f"Error setting weather config: {e}")
+                raise HTTPException(500, f"Failed to set weather config: {e}") from e
+
+        @self.app.post("/weather/refresh")
+        async def weather_refresh():
+            try:
+                if self._weather_lat is None or self._weather_lon is None:
+                    raise HTTPException(400, "Weather not configured — POST /weather/config first")
+                data = await fetch_weather(
+                    self._weather_lat,
+                    self._weather_lon,
+                    unit=self._weather_unit,
+                )
+                if self.pipeline.get_status().running:
+                    await self.pipeline.configure_animation(
+                        {
+                            "temp": round(data.temp),
+                            "condition": data.condition,
+                            "unit": data.unit,
+                        }
+                    )
+                return {
+                    "temp": round(data.temp),
+                    "condition": data.condition,
+                    "unit": data.unit,
+                }
+            except HTTPException:
+                raise
+            except Exception as e:
+                logger.error(f"Error refreshing weather: {e}")
+                raise HTTPException(500, f"Failed to refresh weather: {e}") from e
+
         # WebSocket preview endpoint
         @self.app.websocket("/ws/preview")
         async def preview_websocket(websocket: WebSocket):
@@ -254,6 +336,40 @@ class ApiServer:
             if index_file.exists():
                 return HTMLResponse(index_file.read_text(encoding="utf-8"))
             raise HTTPException(404, "UI not available")
+
+    # ------------------------------------------------------------------
+    # Weather background loop
+    # ------------------------------------------------------------------
+
+    async def _weather_loop(self) -> None:
+        """Periodically fetch weather and push to the running animation."""
+        while True:
+            try:
+                data: WeatherData = await fetch_weather(
+                    self._weather_lat,  # type: ignore[arg-type]
+                    self._weather_lon,  # type: ignore[arg-type]
+                    unit=self._weather_unit,
+                )
+                if self.pipeline.get_status().running:
+                    await self.pipeline.configure_animation(
+                        {
+                            "temp": round(data.temp),
+                            "condition": data.condition,
+                            "unit": data.unit,
+                        }
+                    )
+                    logger.info(
+                        f"Weather updated: {data.temp}{data.unit} {data.condition}"
+                    )
+            except Exception as e:
+                logger.warning(f"Weather fetch failed: {e}")
+            await asyncio.sleep(self._weather_interval)
+
+    def _restart_weather_loop(self) -> None:
+        """Cancel any existing weather loop task and start a fresh one."""
+        if self._weather_task and not self._weather_task.done():
+            self._weather_task.cancel()
+        self._weather_task = asyncio.create_task(self._weather_loop())
 
     async def start_server(self, host: str = "0.0.0.0", port: int = 8000) -> None:
         config = uvicorn.Config(self.app, host=host, port=port, log_level="warning")
