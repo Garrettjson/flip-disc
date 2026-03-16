@@ -1,0 +1,21 @@
+[display]
+# Panel configuration - default canvas 28x28 using 14x7 panels (2x4 grid)
+panel_type = "14x7"  # "7x7", "14x7", or "28x7"
+columns = 2  # Number of panels horizontally (14*2 = 28)
+rows = 4  # Number of panels vertically (7*4 = 28)
+refresh_rate = 20.0  # Target FPS
+buffer_duration = 0.5  # Frame buffer duration in seconds
+
+[serial]
+port = "/dev/ttyUSB0"
+baudrate = 9600
+timeout = 1.0
+mock = true  # Set to false for real hardware
+
+# Optional: auto-fetch weather and display on the "weather" animation
+# Uncomment and fill in your coordinates to enable the background fetch loop.
+# [weather]
+# latitude = 37.77
+# longitude = -122.41
+# unit = "F"        # "F" or "C"
+# interval_seconds = 600

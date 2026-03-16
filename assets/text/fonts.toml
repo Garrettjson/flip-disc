@@ -1,0 +1,26 @@
+# Font configurations for bitmap sprite sheets.
+# Paths are relative to the project root.
+# letter_width / letter_height: glyph size in pixels
+# padding: gap between image edge and first glyph (same in x and y)
+# margin: gap between glyphs (same in x and y)
+# ascii_start: ASCII code of the first glyph in the sheet
+# letters: total number of glyphs encoded in the sheet
+
+[standard]
+path = "assets/text/standard.bmp"
+letter_width = 5
+letter_height = 7
+padding = 1
+margin = 1
+ascii_start = 32
+letters = 95
+
+[compact]
+path = "assets/text/compact.bmp"
+letter_width = 3
+letter_height = 5
+padding = 1
+margin = 1
+ascii_start = 32
+letters = 95
+
