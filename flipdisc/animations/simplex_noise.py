@@ -1,5 +1,7 @@
 """Simplex noise animation."""
 
+from typing import override
+
 import numpy as np
 from opensimplex import noise3array
 
@@ -22,6 +24,7 @@ class SimplexNoise(Animation):
         self.x = np.arange(width)
         self.y = np.arange(height)
 
+    @override
     def configure(self, **params):
         """Configure simplex noise parameters."""
         super().configure(**params)
@@ -31,11 +34,13 @@ class SimplexNoise(Animation):
         if "step_size" in params:
             self.step_size = float(params["step_size"])
 
+    @override
     def step(self, dt: float) -> None:
         """Advance noise animation through time."""
         self.current_time += dt
         self.i += self.step_size
 
+    @override
     def render_gray(self) -> np.ndarray:
         """Render simplex noise to grayscale."""
         # Generate noise using noise3array

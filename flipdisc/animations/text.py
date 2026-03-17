@@ -1,5 +1,7 @@
 """Text display animation for flip-disc displays."""
 
+from typing import override
+
 import numpy as np
 
 from flipdisc.fonts.loader import load_font
@@ -23,6 +25,7 @@ class TextAnimation(Animation):
         self._offset: float = 0.0
         self._error: str | None = None
 
+    @override
     def configure(self, **params) -> None:
         super().configure(**params)
         if "font" in params:
@@ -70,6 +73,7 @@ class TextAnimation(Animation):
             else:
                 self._text_image = line
 
+    @override
     def step(self, dt: float) -> None:
         self.current_time += dt
         if self._text_image is None:
@@ -89,6 +93,7 @@ class TextAnimation(Animation):
                 if self._offset >= total:
                     self._completed = True
 
+    @override
     def render_gray(self) -> np.ndarray:
         frame = np.zeros((self.height, self.width), dtype=np.float32)
 
@@ -186,6 +191,7 @@ class TextAnimation(Animation):
         if fy0 < fy1 and blit_w > 0:
             frame[fy0:fy1, left_pad : left_pad + blit_w] = img[iy0:iy1, :blit_w]
 
+    @override
     def reset(self, seed: int | None = None) -> None:
         super().reset(seed)
         self._offset = 0.0

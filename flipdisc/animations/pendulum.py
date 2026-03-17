@@ -1,6 +1,7 @@
 """Pendulum animation - classic physics simulation."""
 
 import math
+from typing import override
 
 import numpy as np
 
@@ -32,6 +33,7 @@ class Pendulum(Animation):
         self.anchor_x = width / 2
         self.anchor_y = height * 0.1
 
+    @override
     def configure(self, **params):
         """Configure pendulum parameters."""
         super().configure(**params)
@@ -46,6 +48,7 @@ class Pendulum(Animation):
             self.angle = float(params["initial_angle"])
             self.angular_velocity = 0.0
 
+    @override
     def step(self, dt: float) -> None:
         """Advance pendulum physics."""
         self.current_time += dt
@@ -67,6 +70,7 @@ class Pendulum(Animation):
         if len(self.trail_positions) > self.trail_length:
             self.trail_positions.pop(0)
 
+    @override
     def render_gray(self) -> np.ndarray:
         """Render pendulum to grayscale."""
         frame = np.zeros((self.height, self.width), dtype=np.float32)

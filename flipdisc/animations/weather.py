@@ -12,7 +12,7 @@ Configure with:
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, override
 
 import numpy as np
 
@@ -54,6 +54,7 @@ class WeatherAnimation(ComposedAnimation):
 
     def __init__(self, width: int, height: int):
         super().__init__(width, height)
+        self._show_degree = True
         icon = WeatherIconAnimation(width, height)
         icon.configure(condition="cloudy")
         temp = TextAnimation(width - 1, 7)
@@ -65,16 +66,23 @@ class WeatherAnimation(ComposedAnimation):
             ]
         )
 
+    @override
     def configure(self, **params: Any) -> None:
         if "condition" in params:
             self._update_layer("icon", {"condition": params["condition"]})
         if "temp" in params:
             # Store number only — degree + unit drawn in render_gray
             self._update_layer("temp", {"text": str(int(params["temp"]))})
+        if "show_degree" in params:
+            self._show_degree = bool(params["show_degree"])
         super().configure(**params)
 
+    @override
     def render_gray(self) -> np.ndarray:
         canvas = super().render_gray()
+
+        if not self._show_degree:
+            return canvas
 
         for layer in self._layers:
             if layer.id != "temp":

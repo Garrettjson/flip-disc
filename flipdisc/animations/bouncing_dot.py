@@ -1,6 +1,7 @@
 """Simple bouncing dot animation."""
 
 import numpy as np
+from typing import override
 
 from .base import Animation, register_animation
 
@@ -20,6 +21,7 @@ class BouncingDot(Animation):
         self.dx = 1
         self.dy = 2
 
+    @override
     def configure(self, **params):
         """Configure bouncing dot parameters."""
         super().configure(**params)
@@ -33,6 +35,7 @@ class BouncingDot(Animation):
         if "speed_y" in params:
             self.dy = int(params["speed_y"])
 
+    @override
     def step(self, dt: float) -> None:
         """Advance dot position (simplified discrete movement)."""
         self.current_time += dt
@@ -54,6 +57,7 @@ class BouncingDot(Animation):
             self.dy *= -1
             self.y = max(0, min(self.y, self.height - 1))
 
+    @override
     def render_gray(self) -> np.ndarray:
         """Render bouncing dot as single pixel."""
         frame = np.zeros((self.height, self.width), dtype=np.float32)

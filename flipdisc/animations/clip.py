@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import override
+
 import numpy as np
 
 from flipdisc.clips.loader import ClipData, load_clip
@@ -63,6 +65,7 @@ class ClipAnimation(Animation):
         self._frame_idx: float = 0.0
         self._fit_mode: str = "center"
 
+    @override
     def configure(self, **params) -> None:
         super().configure(**params)
         if "name" in params:
@@ -79,6 +82,7 @@ class ClipAnimation(Animation):
         if "fit_mode" in params:
             self._fit_mode = str(params["fit_mode"])
 
+    @override
     def step(self, dt: float) -> None:
         self.current_time += dt
         if self._clip is None:
@@ -94,6 +98,7 @@ class ClipAnimation(Animation):
             self._frame_idx = float(n - 1)
             self._completed = True
 
+    @override
     def render_gray(self) -> np.ndarray:
         canvas = np.zeros((self.height, self.width), dtype=np.float32)
         if self._clip is None:
@@ -103,6 +108,7 @@ class ClipAnimation(Animation):
         _blit_fit(canvas, src, self._fit_mode)
         return canvas
 
+    @override
     def reset(self, seed: int | None = None) -> None:
         super().reset(seed)
         self._frame_idx = 0.0

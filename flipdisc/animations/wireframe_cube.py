@@ -1,6 +1,7 @@
 """Rotating 3D wireframe cube animation."""
 
 import math
+from typing import override
 
 import numpy as np
 
@@ -66,6 +67,7 @@ class WireframeCube(Animation):
 
         self.angle = 0.0
 
+    @override
     def configure(self, **params):
         super().configure(**params)
 
@@ -80,10 +82,12 @@ class WireframeCube(Animation):
         if "axis_z" in params:
             self.axis_z = float(params["axis_z"])
 
+    @override
     def step(self, dt: float) -> None:
         self.current_time += dt
         self.angle += self.rotation_speed * dt
 
+    @override
     def render_gray(self) -> np.ndarray:
         frame = np.zeros((self.height, self.width), dtype=np.float32)
 

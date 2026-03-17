@@ -1,5 +1,7 @@
 """Conway's Game of Life animation."""
 
+from typing import override
+
 import numpy as np
 from scipy.ndimage import convolve
 
@@ -26,6 +28,7 @@ class Life(Animation):
 
         self._randomize(density=0.3)
 
+    @override
     def configure(self, **params):
         super().configure(**params)
 
@@ -34,10 +37,12 @@ class Life(Animation):
         if "pattern" in params:
             self._load_pattern(params["pattern"])
 
+    @override
     def step(self, dt: float) -> None:
         self.current_time += dt
         self._update_generation()
 
+    @override
     def render_gray(self) -> np.ndarray:
         frame = self.grid.astype(np.float32)
 

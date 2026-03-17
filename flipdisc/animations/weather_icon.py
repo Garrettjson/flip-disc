@@ -7,7 +7,7 @@ assets/images/weather/ BMPs and renders them full-canvas.
 from __future__ import annotations
 
 from pathlib import Path
-from typing import ClassVar
+from typing import ClassVar, override
 
 import numpy as np
 from skimage.io import imread
@@ -63,15 +63,18 @@ class WeatherIconAnimation(Animation):
         super().__init__(width, height, processing_steps=("binarize",))
         self._condition = _FALLBACK
 
+    @override
     def configure(self, **params) -> None:
         super().configure(**params)
         if "condition" in params:
             cond = str(params["condition"])
             self._condition = cond if cond in _CONDITIONS else _FALLBACK
 
+    @override
     def step(self, dt: float) -> None:
         self.current_time += dt
 
+    @override
     def render_gray(self) -> np.ndarray:
         icon = self.ICONS[self._condition]
         canvas = np.zeros((self.height, self.width), dtype=np.float32)

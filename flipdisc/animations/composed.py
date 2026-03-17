@@ -24,7 +24,7 @@ register with @register_animation. The API then starts it by name::
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, override
 
 import numpy as np
 
@@ -130,6 +130,7 @@ class ComposedAnimation(Animation):
             )
         self._layers = built
 
+    @override
     def configure(self, **params: Any) -> None:
         super().configure(**params)
 
@@ -146,11 +147,13 @@ class ComposedAnimation(Animation):
                     else:
                         self._update_layer(layer_id, {subkey: val})
 
+    @override
     def step(self, dt: float) -> None:
         self.current_time += dt
         for layer in self._layers:
             layer.anim.step(dt)
 
+    @override
     def render_gray(self) -> np.ndarray:
         canvas = np.zeros((self.height, self.width), dtype=np.float32)
         for layer in self._layers:
@@ -179,6 +182,7 @@ class ComposedAnimation(Animation):
 
         return canvas
 
+    @override
     def reset(self, seed: int | None = None) -> None:
         super().reset(seed)
         for layer in self._layers:

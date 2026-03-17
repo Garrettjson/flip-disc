@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import datetime
+from typing import override
 
 import numpy as np
 
@@ -32,6 +33,7 @@ class ClockAnimation(Animation):
         self._format = "24h"
         self._blink_colon = False
 
+    @override
     def configure(self, **params) -> None:
         super().configure(**params)
         if "font" in params:
@@ -42,9 +44,11 @@ class ClockAnimation(Animation):
         if "blink_colon" in params:
             self._blink_colon = bool(params["blink_colon"])
 
+    @override
     def step(self, dt: float) -> None:
         self.current_time += dt
 
+    @override
     def render_gray(self) -> np.ndarray:
         now = datetime.now()
 

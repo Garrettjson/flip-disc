@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import override
+
 import numpy as np
 from skimage.io import imread
 
@@ -28,14 +30,17 @@ class ImageAnimation(Animation):
         super().__init__(width, height, processing_steps=("binarize",))
         self._frame: np.ndarray | None = None
 
+    @override
     def configure(self, **params) -> None:
         super().configure(**params)
         if "src" in params:
             self._frame = imread(str(params["src"]), as_gray=True).astype(np.float32)
 
+    @override
     def step(self, dt: float) -> None:
         self.current_time += dt
 
+    @override
     def render_gray(self) -> np.ndarray:
         canvas = np.zeros((self.height, self.width), dtype=np.float32)
         if self._frame is not None:
