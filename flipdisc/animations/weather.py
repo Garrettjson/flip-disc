@@ -45,10 +45,10 @@ class WeatherAnimation(ComposedAnimation):
 
     Example::
 
-        POST /anim/weather
+        POST / anim / weather
         {"temp": 72, "condition": "sunny", "unit": "F"}
 
-        POST /animations/configure
+        POST / animations / configure
         {"temp": 68, "condition": "cloudy"}
     """
 
@@ -68,8 +68,15 @@ class WeatherAnimation(ComposedAnimation):
 
     @override
     def configure(self, **params: Any) -> None:
-        if "condition" in params:
-            self._update_layer("icon", {"condition": params["condition"]})
+        if "condition" in params or "spawn_rate" in params or "fall_speed" in params:
+            icon_params: dict[str, Any] = {}
+            if "condition" in params:
+                icon_params["condition"] = params["condition"]
+            if "spawn_rate" in params:
+                icon_params["spawn_rate"] = params["spawn_rate"]
+            if "fall_speed" in params:
+                icon_params["fall_speed"] = params["fall_speed"]
+            self._update_layer("icon", icon_params)
         if "temp" in params:
             # Store number only — degree + unit drawn in render_gray
             self._update_layer("temp", {"text": str(int(params["temp"]))})
