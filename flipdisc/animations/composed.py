@@ -9,14 +9,17 @@ register with @register_animation. The API then starts it by name::
             super().__init__(width, height)
             temp = TextAnimation(41, 7)
             temp.configure(text="--", mode="static")
-            self.compose([
-                (temp, {"id": "temp", "x": 15, "y": 0}),
-            ])
+            self.compose(
+                [
+                    (temp, {"id": "temp", "x": 15, "y": 0}),
+                ]
+            )
 
         def configure(self, **params):
             if "temp" in params:
                 self._update_layer("temp", {"text": str(params["temp"]) + "F"})
             super().configure(**params)
+
 
     # API: POST /anim/weather_dashboard {"temp": 72}
 """
@@ -36,9 +39,7 @@ from .base import Animation, get_animation, register_animation
 _LAYER_FIELDS = {"blend", "visible"}
 
 
-def _blit_region(
-    canvas: np.ndarray, src: np.ndarray, x: int, y: int
-) -> None:
+def _blit_region(canvas: np.ndarray, src: np.ndarray, x: int, y: int) -> None:
     """Blit ``src`` onto ``canvas`` at (x, y) using "over" mode, clipping to bounds."""
     ch, cw = canvas.shape
     sh, sw = src.shape
@@ -62,7 +63,7 @@ class _Layer:
     y: int
     width: int
     height: int
-    blend: str = field(default="over")   # "over" | "add"
+    blend: str = field(default="over")  # "over" | "add"
     visible: bool = field(default=True)
 
 
@@ -74,19 +75,33 @@ class ComposedAnimation(Animation):
 
     **API / one-off use**: pass a ``layers`` list in configure params::
 
-        POST /anim/composed
+        POST / anim / composed
         {
-          "layers": [
-            {"id": "rain", "type": "clip",  "x": 0,  "y": 0, "width": 14, "height": 7,
-             "params": {"name": "rain", "loop": true}},
-            {"id": "temp", "type": "text",  "x": 15, "y": 0, "width": 41, "height": 7,
-             "params": {"text": "72F", "mode": "static", "font": "compact"}}
-          ]
+            "layers": [
+                {
+                    "id": "rain",
+                    "type": "clip",
+                    "x": 0,
+                    "y": 0,
+                    "width": 14,
+                    "height": 7,
+                    "params": {"name": "rain", "loop": true},
+                },
+                {
+                    "id": "temp",
+                    "type": "text",
+                    "x": 15,
+                    "y": 0,
+                    "width": 41,
+                    "height": 7,
+                    "params": {"text": "72F", "mode": "static", "font": "compact"},
+                },
+            ]
         }
 
     Live updates (no restart needed)::
 
-        POST /animations/configure
+        POST / animations / configure
         {"layer.temp.text": "68F"}
         {"layer.rain.visible": false}
         {"layer.noise.blend": "add"}
@@ -164,11 +179,14 @@ class ComposedAnimation(Animation):
             ).astype(np.float32)
 
             # Clip destination and source regions to canvas bounds once
-            dy0 = max(0, layer.y);  dx0 = max(0, layer.x)
+            dy0 = max(0, layer.y)
+            dx0 = max(0, layer.x)
             dy1 = min(self.height, layer.y + layer.height)
-            dx1 = min(self.width,  layer.x + layer.width)
-            sy0 = dy0 - layer.y;    sx0 = dx0 - layer.x
-            sy1 = sy0 + (dy1 - dy0); sx1 = sx0 + (dx1 - dx0)
+            dx1 = min(self.width, layer.x + layer.width)
+            sy0 = dy0 - layer.y
+            sx0 = dx0 - layer.x
+            sy1 = sy0 + (dy1 - dy0)
+            sx1 = sx0 + (dx1 - dx0)
 
             if dy0 >= dy1 or dx0 >= dx1:
                 continue

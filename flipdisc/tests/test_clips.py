@@ -20,7 +20,9 @@ from flipdisc.clips.loader import ClipData, list_clips, load_clip
 def _make_clip_data(n=10, h=7, w=56) -> ClipData:
     frames = np.zeros((n, h, w), dtype=bool)
     frames[0, 3, 10] = True
-    return ClipData(frames=frames, fps=20.0, loop=True, width=w, height=h, description="test")
+    return ClipData(
+        frames=frames, fps=20.0, loop=True, width=w, height=h, description="test"
+    )
 
 
 def _write_clip_toml(tmp_path, gif_path) -> str:
@@ -172,7 +174,9 @@ def test_blit_fit_tile():
 
 def test_clip_animation_configure(monkeypatch):
     clip_data = _make_clip_data()
-    monkeypatch.setattr("flipdisc.animations.clip.load_clip", _mock_load_clip(clip_data))
+    monkeypatch.setattr(
+        "flipdisc.animations.clip.load_clip", _mock_load_clip(clip_data)
+    )
 
     anim = ClipAnimation(56, 7)
     anim.configure(name="test")
@@ -185,7 +189,9 @@ def test_clip_animation_configure(monkeypatch):
 
 def test_clip_animation_render_shape(monkeypatch):
     clip_data = _make_clip_data()
-    monkeypatch.setattr("flipdisc.animations.clip.load_clip", _mock_load_clip(clip_data))
+    monkeypatch.setattr(
+        "flipdisc.animations.clip.load_clip", _mock_load_clip(clip_data)
+    )
 
     anim = ClipAnimation(56, 7)
     anim.configure(name="test")
@@ -204,7 +210,9 @@ def test_clip_animation_no_clip_returns_zeros():
 
 def test_clip_animation_step_advances(monkeypatch):
     clip_data = _make_clip_data(n=100)
-    monkeypatch.setattr("flipdisc.animations.clip.load_clip", _mock_load_clip(clip_data))
+    monkeypatch.setattr(
+        "flipdisc.animations.clip.load_clip", _mock_load_clip(clip_data)
+    )
 
     anim = ClipAnimation(56, 7)
     anim.configure(name="test", fps_override=10.0)
@@ -214,7 +222,9 @@ def test_clip_animation_step_advances(monkeypatch):
 
 def test_clip_animation_loops(monkeypatch):
     clip_data = _make_clip_data(n=10)
-    monkeypatch.setattr("flipdisc.animations.clip.load_clip", _mock_load_clip(clip_data))
+    monkeypatch.setattr(
+        "flipdisc.animations.clip.load_clip", _mock_load_clip(clip_data)
+    )
 
     anim = ClipAnimation(56, 7)
     anim.configure(name="test", fps_override=10.0, loop=True)
@@ -225,7 +235,9 @@ def test_clip_animation_loops(monkeypatch):
 
 def test_clip_animation_no_loop_completes(monkeypatch):
     clip_data = _make_clip_data(n=10)
-    monkeypatch.setattr("flipdisc.animations.clip.load_clip", _mock_load_clip(clip_data))
+    monkeypatch.setattr(
+        "flipdisc.animations.clip.load_clip", _mock_load_clip(clip_data)
+    )
 
     anim = ClipAnimation(56, 7)
     anim.configure(name="test", fps_override=10.0, loop=False)
@@ -236,7 +248,9 @@ def test_clip_animation_no_loop_completes(monkeypatch):
 
 def test_clip_animation_reset(monkeypatch):
     clip_data = _make_clip_data(n=10)
-    monkeypatch.setattr("flipdisc.animations.clip.load_clip", _mock_load_clip(clip_data))
+    monkeypatch.setattr(
+        "flipdisc.animations.clip.load_clip", _mock_load_clip(clip_data)
+    )
 
     anim = ClipAnimation(56, 7)
     anim.configure(name="test")
@@ -301,8 +315,22 @@ def test_composed_animation_two_layers():
     anim = ComposedAnimation(56, 7)
     anim.configure(
         layers=[
-            {"id": "left", "type": "bouncing_dot", "x": 0, "y": 0, "width": 28, "height": 7},
-            {"id": "right", "type": "bouncing_dot", "x": 28, "y": 0, "width": 28, "height": 7},
+            {
+                "id": "left",
+                "type": "bouncing_dot",
+                "x": 0,
+                "y": 0,
+                "width": 28,
+                "height": 7,
+            },
+            {
+                "id": "right",
+                "type": "bouncing_dot",
+                "x": 28,
+                "y": 0,
+                "width": 28,
+                "height": 7,
+            },
         ]
     )
     assert len(anim._layers) == 2
@@ -314,7 +342,14 @@ def test_composed_animation_step_calls_layers():
     anim = ComposedAnimation(56, 7)
     anim.configure(
         layers=[
-            {"id": "dot", "type": "bouncing_dot", "x": 0, "y": 0, "width": 56, "height": 7},
+            {
+                "id": "dot",
+                "type": "bouncing_dot",
+                "x": 0,
+                "y": 0,
+                "width": 56,
+                "height": 7,
+            },
         ]
     )
     t_before = anim._layers[0].anim.current_time
@@ -346,7 +381,14 @@ def test_composed_animation_unknown_layer_id_is_noop():
     anim = ComposedAnimation(56, 7)
     anim.configure(
         layers=[
-            {"id": "a", "type": "bouncing_dot", "x": 0, "y": 0, "width": 56, "height": 7}
+            {
+                "id": "a",
+                "type": "bouncing_dot",
+                "x": 0,
+                "y": 0,
+                "width": 56,
+                "height": 7,
+            }
         ]
     )
     # Should not raise
@@ -362,7 +404,14 @@ def test_composed_animation_reset():
     anim = ComposedAnimation(56, 7)
     anim.configure(
         layers=[
-            {"id": "dot", "type": "bouncing_dot", "x": 0, "y": 0, "width": 56, "height": 7}
+            {
+                "id": "dot",
+                "type": "bouncing_dot",
+                "x": 0,
+                "y": 0,
+                "width": 56,
+                "height": 7,
+            }
         ]
     )
     anim.step(1.0)
@@ -381,10 +430,12 @@ def test_composed_compose_method():
     anim = ComposedAnimation(56, 7)
     dot1 = BouncingDot(28, 7)
     dot2 = BouncingDot(28, 7)
-    anim.compose([
-        (dot1, {"id": "left",  "x": 0,  "y": 0}),
-        (dot2, {"id": "right", "x": 28, "y": 0}),
-    ])
+    anim.compose(
+        [
+            (dot1, {"id": "left", "x": 0, "y": 0}),
+            (dot2, {"id": "right", "x": 28, "y": 0}),
+        ]
+    )
     assert len(anim._layers) == 2
     assert anim._layers[0].id == "left"
     assert anim._layers[1].id == "right"
@@ -396,12 +447,22 @@ def test_composed_compose_method():
 
 def test_composed_compose_replaces_layers():
     anim = ComposedAnimation(56, 7)
-    anim.configure(layers=[
-        {"id": "old", "type": "bouncing_dot", "x": 0, "y": 0, "width": 56, "height": 7}
-    ])
+    anim.configure(
+        layers=[
+            {
+                "id": "old",
+                "type": "bouncing_dot",
+                "x": 0,
+                "y": 0,
+                "width": 56,
+                "height": 7,
+            }
+        ]
+    )
     assert len(anim._layers) == 1
 
     from flipdisc.animations.bouncing_dot import BouncingDot
+
     anim.compose([(BouncingDot(56, 7), {"id": "new", "x": 0, "y": 0})])
     assert len(anim._layers) == 1
     assert anim._layers[0].id == "new"
@@ -439,28 +500,62 @@ def test_composed_subclass_pattern():
 
 def test_composed_blend_over_overwrites():
     anim = ComposedAnimation(56, 7)
-    anim.configure(layers=[
-        {"id": "base", "type": "bouncing_dot", "x": 0, "y": 0, "width": 56, "height": 7},
-        {"id": "top",  "type": "bouncing_dot", "x": 0, "y": 0, "width": 56, "height": 7,
-         "blend": "over"},
-    ])
+    anim.configure(
+        layers=[
+            {
+                "id": "base",
+                "type": "bouncing_dot",
+                "x": 0,
+                "y": 0,
+                "width": 56,
+                "height": 7,
+            },
+            {
+                "id": "top",
+                "type": "bouncing_dot",
+                "x": 0,
+                "y": 0,
+                "width": 56,
+                "height": 7,
+                "blend": "over",
+            },
+        ]
+    )
     assert anim._layers[1].blend == "over"
 
 
 def test_composed_blend_add_via_json():
     anim = ComposedAnimation(56, 7)
-    anim.configure(layers=[
-        {"id": "a", "type": "bouncing_dot", "x": 0, "y": 0,
-         "width": 56, "height": 7, "blend": "add"},
-    ])
+    anim.configure(
+        layers=[
+            {
+                "id": "a",
+                "type": "bouncing_dot",
+                "x": 0,
+                "y": 0,
+                "width": 56,
+                "height": 7,
+                "blend": "add",
+            },
+        ]
+    )
     assert anim._layers[0].blend == "add"
 
 
 def test_composed_blend_add_via_dotted_key():
     anim = ComposedAnimation(56, 7)
-    anim.configure(layers=[
-        {"id": "a", "type": "bouncing_dot", "x": 0, "y": 0, "width": 56, "height": 7},
-    ])
+    anim.configure(
+        layers=[
+            {
+                "id": "a",
+                "type": "bouncing_dot",
+                "x": 0,
+                "y": 0,
+                "width": 56,
+                "height": 7,
+            },
+        ]
+    )
     assert anim._layers[0].blend == "over"
     anim.configure(**{"layer.a.blend": "add"})
     assert anim._layers[0].blend == "add"
@@ -477,10 +572,12 @@ def test_composed_blend_add_result():
     dot2 = BouncingDot(56, 7)
     dot2.x, dot2.y = 10, 0
 
-    anim.compose([
-        (dot1, {"id": "a", "x": 0, "y": 0, "blend": "over"}),
-        (dot2, {"id": "b", "x": 0, "y": 0, "blend": "add"}),
-    ])
+    anim.compose(
+        [
+            (dot1, {"id": "a", "x": 0, "y": 0, "blend": "over"}),
+            (dot2, {"id": "b", "x": 0, "y": 0, "blend": "add"}),
+        ]
+    )
     frame = anim.render_gray()
     # At least 2 pixels should be set (one per dot, binarized)
     assert frame.sum() >= 1.0
@@ -493,18 +590,36 @@ def test_composed_blend_add_result():
 
 def test_composed_layer_visible_default():
     anim = ComposedAnimation(56, 7)
-    anim.configure(layers=[
-        {"id": "dot", "type": "bouncing_dot", "x": 0, "y": 0, "width": 56, "height": 7}
-    ])
+    anim.configure(
+        layers=[
+            {
+                "id": "dot",
+                "type": "bouncing_dot",
+                "x": 0,
+                "y": 0,
+                "width": 56,
+                "height": 7,
+            }
+        ]
+    )
     assert anim._layers[0].visible is True
 
 
 def test_composed_layer_visible_false_via_json():
     anim = ComposedAnimation(56, 7)
-    anim.configure(layers=[
-        {"id": "dot", "type": "bouncing_dot", "x": 0, "y": 0,
-         "width": 56, "height": 7, "visible": False}
-    ])
+    anim.configure(
+        layers=[
+            {
+                "id": "dot",
+                "type": "bouncing_dot",
+                "x": 0,
+                "y": 0,
+                "width": 56,
+                "height": 7,
+                "visible": False,
+            }
+        ]
+    )
     assert anim._layers[0].visible is False
     frame = anim.render_gray()
     assert frame.sum() == 0.0  # nothing rendered

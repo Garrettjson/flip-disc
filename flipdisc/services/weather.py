@@ -14,6 +14,8 @@ from dataclasses import dataclass
 
 import httpx
 
+from flipdisc.services.moon_phase import moon_phase
+
 # WMO weather interpretation codes → canonical condition strings
 # https://open-meteo.com/en/docs#weathervariables
 WMO_TO_CONDITION: dict[int, str] = {
@@ -55,6 +57,8 @@ class WeatherData:
     temp: float
     condition: str  # one of the canonical condition strings
     unit: str  # "F" or "C"
+    wmo_code: int | None = None
+    moon_phase: float | None = None
 
 
 async def fetch_weather(
@@ -97,7 +101,15 @@ async def fetch_weather(
     condition = WMO_TO_CONDITION.get(wmo_code, "cloudy")
 
     # Use moon icon for clear-sky night (WMO 0 at night)
+    phase: float | None = None
     if wmo_code == 0 and is_day == 0:
         condition = "moon"
+        phase = moon_phase()
 
-    return WeatherData(temp=temp, condition=condition, unit=unit.upper())
+    return WeatherData(
+        temp=temp,
+        condition=condition,
+        unit=unit.upper(),
+        wmo_code=wmo_code,
+        moon_phase=phase,
+    )

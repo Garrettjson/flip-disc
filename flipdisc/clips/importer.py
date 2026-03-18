@@ -86,8 +86,7 @@ def _save_gif(frames: list[np.ndarray], output_path: str | Path, fps: float) -> 
     """
     duration_ms = int(round(1000.0 / fps))
     pil_frames = [
-        Image.fromarray((f.astype(np.uint8) * 255)).convert("P")
-        for f in frames
+        Image.fromarray(f.astype(np.uint8) * 255).convert("P") for f in frames
     ]
     pil_frames[0].save(
         str(output_path),

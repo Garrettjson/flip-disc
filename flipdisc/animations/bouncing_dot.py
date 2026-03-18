@@ -1,7 +1,8 @@
 """Simple bouncing dot animation."""
 
-import numpy as np
 from typing import override
+
+import numpy as np
 
 from .base import Animation, register_animation
 

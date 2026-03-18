@@ -19,10 +19,10 @@ class ImageAnimation(Animation):
     The image is loaded and binarized at configure time. Updating ``src``
     swaps the image live without restarting the animation::
 
-        POST /anim/image
+        POST / anim / image
         {"src": "assets/images/cloud.png"}
 
-        POST /animations/configure
+        POST / animations / configure
         {"layer.icon.src": "assets/images/sun.png"}
     """
 

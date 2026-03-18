@@ -16,10 +16,10 @@ from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
 
 from flipdisc.animations import list_animations as list_animation_names
+from flipdisc.clips.loader import _CLIPS_CONFIG, list_clips
 from flipdisc.config import DisplayConfig
 from flipdisc.engine.pipeline import DisplayPipeline
 from flipdisc.exceptions import AnimationError
-from flipdisc.clips.loader import _CLIPS_CONFIG, list_clips
 from flipdisc.fonts.loader import _FONTS_CONFIG
 from flipdisc.services.weather import WeatherData, fetch_weather
 
@@ -231,7 +231,8 @@ class ApiServer:
 
                 if self._weather_lat is None or self._weather_lon is None:
                     raise HTTPException(
-                        400, "latitude and longitude are required to start weather fetch"
+                        400,
+                        "latitude and longitude are required to start weather fetch",
                     )
                 self._restart_weather_loop()
                 return {
@@ -251,24 +252,30 @@ class ApiServer:
         async def weather_refresh():
             try:
                 if self._weather_lat is None or self._weather_lon is None:
-                    raise HTTPException(400, "Weather not configured — POST /weather/config first")
+                    raise HTTPException(
+                        400, "Weather not configured — POST /weather/config first"
+                    )
                 data = await fetch_weather(
                     self._weather_lat,
                     self._weather_lon,
                     unit=self._weather_unit,
                 )
                 if self.pipeline.get_status().running:
-                    await self.pipeline.configure_animation(
-                        {
-                            "temp": round(data.temp),
-                            "condition": data.condition,
-                            "unit": data.unit,
-                        }
-                    )
+                    conf = {
+                        "temp": round(data.temp),
+                        "condition": data.condition,
+                        "unit": data.unit,
+                        "wmo_code": data.wmo_code,
+                    }
+                    if data.moon_phase is not None:
+                        conf["moon_phase"] = data.moon_phase
+                    await self.pipeline.configure_animation(conf)
                 return {
                     "temp": round(data.temp),
                     "condition": data.condition,
                     "unit": data.unit,
+                    "wmo_code": data.wmo_code,
+                    "moon_phase": data.moon_phase,
                 }
             except HTTPException:
                 raise
@@ -351,13 +358,15 @@ class ApiServer:
                     unit=self._weather_unit,
                 )
                 if self.pipeline.get_status().running:
-                    await self.pipeline.configure_animation(
-                        {
-                            "temp": round(data.temp),
-                            "condition": data.condition,
-                            "unit": data.unit,
-                        }
-                    )
+                    conf = {
+                        "temp": round(data.temp),
+                        "condition": data.condition,
+                        "unit": data.unit,
+                        "wmo_code": data.wmo_code,
+                    }
+                    if data.moon_phase is not None:
+                        conf["moon_phase"] = data.moon_phase
+                    await self.pipeline.configure_animation(conf)
                     logger.info(
                         f"Weather updated: {data.temp}{data.unit} {data.condition}"
                     )

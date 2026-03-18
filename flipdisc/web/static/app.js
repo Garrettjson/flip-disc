@@ -104,8 +104,9 @@ function getAnimationParams(animationName) {
       { name: 'longitude', label: 'Longitude', type: 'number', step: 0.01, value: -74.01 },
       { name: 'unit', label: 'Unit', type: 'select', options: ['F', 'C'], value: 'F' },
       { name: 'show_degree', label: 'Degree Symbol', type: 'checkbox', value: true },
-      { name: 'spawn_rate', label: 'Snow Rate', type: 'number', min: 0.5, max: 10, step: 0.5, value: 2.0 },
-      { name: 'fall_speed', label: 'Fall Speed', type: 'number', min: 1, max: 20, step: 0.5, value: 6.0 }
+      { name: 'spawn_rate', label: 'Precip Rate', type: 'number', min: 0.5, max: 10, step: 0.5, value: 2.0 },
+      { name: 'fall_speed', label: 'Fall Speed', type: 'number', min: 1, max: 30, step: 0.5, value: 6.0 },
+      { name: 'droplet_size', label: 'Droplet Size', type: 'number', min: 1, max: 3, step: 1, value: 2 }
     ]
   };
   return params[animationName] || [];

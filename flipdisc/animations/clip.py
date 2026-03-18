@@ -53,7 +53,7 @@ class ClipAnimation(Animation):
 
     API usage::
 
-        POST /anim/clip
+        POST / anim / clip
         {"name": "rain", "loop": true}
     """
 

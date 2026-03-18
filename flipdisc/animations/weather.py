@@ -68,14 +68,19 @@ class WeatherAnimation(ComposedAnimation):
 
     @override
     def configure(self, **params: Any) -> None:
-        if "condition" in params or "spawn_rate" in params or "fall_speed" in params:
+        _icon_keys = {
+            "condition",
+            "spawn_rate",
+            "fall_speed",
+            "droplet_size",
+            "wmo_code",
+            "moon_phase",
+        }
+        if _icon_keys & params.keys():
             icon_params: dict[str, Any] = {}
-            if "condition" in params:
-                icon_params["condition"] = params["condition"]
-            if "spawn_rate" in params:
-                icon_params["spawn_rate"] = params["spawn_rate"]
-            if "fall_speed" in params:
-                icon_params["fall_speed"] = params["fall_speed"]
+            for k in _icon_keys:
+                if k in params:
+                    icon_params[k] = params[k]
             self._update_layer("icon", icon_params)
         if "temp" in params:
             # Store number only — degree + unit drawn in render_gray
