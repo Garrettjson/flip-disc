@@ -15,7 +15,13 @@ import numpy as np
 from skimage.io import imread
 
 from .base import Animation
-from .precipitation import WMO_RAIN_PRESETS, RainEffect, SnowEffect
+from .precipitation import (
+    WMO_RAIN_PRESETS,
+    WMO_THUNDER_PRESETS,
+    LightningEffect,
+    RainEffect,
+    SnowEffect,
+)
 
 _ICONS_DIR = Path(__file__).resolve().parents[2] / "assets" / "images" / "weather"
 
@@ -26,14 +32,15 @@ _CONDITION_FILES: dict[str, str] = {
     "cloudy": "cloud.bmp",
     "rain": "cloud.bmp",
     "snow": "cloud.bmp",
-    "thunderstorm": "thunderstorm.bmp",
+    "thunderstorm": "cloud.bmp",
     "fog": "fog.bmp",
     "moon": "moon.bmp",
-    "sunrise": "sunrise.bmp",
+    "sunrise": "sun.bmp",
+    "sunset": "sun.bmp",
 }
 
 # Conditions that use animated precipitation instead of a static BMP
-_PRECIP_CONDITIONS = {"snow", "rain"}
+_PRECIP_CONDITIONS = {"snow", "rain", "thunderstorm"}
 
 _CONDITIONS = set(_CONDITION_FILES.keys())
 _FALLBACK = "cloudy"
@@ -44,10 +51,20 @@ _MOON_RADIUS = 7
 
 
 _MIN_PHASE = 0.13  # minimum crescent width — readable on low-res display
+_SUPERSAMPLE = 8  # render at Nx resolution then downsample for smooth edges
+
+# Sunrise/sunset constants (derived from sun.bmp geometry: content spans rows 2–13)
+_SUN_TOP_ROW = 2   # first row with content in sun.bmp
+_SUN_BOTTOM_ROW = 13  # last row with content in sun.bmp
+_SUN_TRAVEL = _SUN_BOTTOM_ROW - _SUN_TOP_ROW + 1  # 12 rows of vertical travel
+_SUN_HORIZON_ROW = _SUN_BOTTOM_ROW + 1  # fixed horizon just below final sun position
 
 
 def _render_moon(canvas: np.ndarray, phase: float) -> None:
     """Draw a procedural moon disc with phase-based shadow mask.
+
+    Renders at _SUPERSAMPLE× internal resolution and block-averages down
+    so crescent edges get sub-pixel anti-aliasing instead of jagged gaps.
 
     Args:
         canvas: (H, W) float32 array to draw into.
@@ -58,44 +75,58 @@ def _render_moon(canvas: np.ndarray, phase: float) -> None:
 
     cy, cx = _MOON_CENTER
     r = _MOON_RADIUS
+    s = _SUPERSAMPLE
 
-    # Terminator offset: cos maps phase to how much of each row is lit.
-    # phase=0 -> cos(0)=1 -> fully shadowed (new moon)
-    # phase=0.25 -> cos(pi/2)=0 -> half lit (first quarter)
-    # phase=0.5 -> cos(pi)=-1 -> fully lit (full moon)
+    # High-res patch covering the moon bounding box
+    patch_size = 2 * r + 1  # low-res size
+    hi_size = patch_size * s
+    hi = np.zeros((hi_size, hi_size), dtype=np.float32)
+
+    # High-res center and radius
+    hi_r = r * s
+    hi_cy = r * s  # center within the patch
+    hi_cx = r * s
+
     terminator = math.cos(phase * 2.0 * math.pi)
 
-    for row in range(cy - r, cy + r + 1):
-        if row < 0 or row >= canvas.shape[0]:
-            continue
-        # Half-width of the disc at this row
-        dy = row - cy
-        half_w_sq = r * r - dy * dy
+    for row in range(hi_size):
+        dy = row - hi_cy
+        half_w_sq = hi_r * hi_r - dy * dy
         if half_w_sq < 0:
             continue
         half_w = math.sqrt(half_w_sq)
-        col_left = cx - half_w
-        col_right = cx + half_w
 
-        # Terminator x position: splits the disc into lit and shadow.
-        # For waning, negate so the terminator sweeps right-to-left.
         if phase <= 0.5:
-            term_x = cx + terminator * half_w
+            term_x = hi_cx + terminator * half_w
         else:
-            term_x = cx - terminator * half_w
+            term_x = hi_cx - terminator * half_w
 
-        for col in range(max(0, int(col_left)), min(canvas.shape[1], int(col_right) + 1)):
-            # Check pixel is inside the disc (circle test)
-            if (col - cx) ** 2 + dy**2 > r * r:
+        for col in range(max(0, int(hi_cx - half_w)), min(hi_size, int(hi_cx + half_w) + 1)):
+            if (col - hi_cx) ** 2 + dy**2 > hi_r * hi_r:
                 continue
 
             if phase <= 0.5:
-                # Waxing: right side lights up first
                 if col >= term_x:
-                    canvas[row, col] = 1.0
-            # Waning: left side stays lit last
+                    hi[row, col] = 1.0
             elif col <= term_x:
-                canvas[row, col] = 1.0
+                hi[row, col] = 1.0
+
+    # Downsample: reshape into (H, s, W, s) blocks and average
+    lo = hi.reshape(patch_size, s, patch_size, s).mean(axis=(1, 3))
+
+    # Blit patch onto canvas, clipping to canvas bounds
+    dst_y = cy - r
+    dst_x = cx - r
+    src_y0 = max(0, -dst_y)
+    src_x0 = max(0, -dst_x)
+    dst_y0 = max(0, dst_y)
+    dst_x0 = max(0, dst_x)
+    dst_y1 = min(canvas.shape[0], dst_y + patch_size)
+    dst_x1 = min(canvas.shape[1], dst_x + patch_size)
+    h = dst_y1 - dst_y0
+    w = dst_x1 - dst_x0
+    if h > 0 and w > 0:
+        canvas[dst_y0:dst_y1, dst_x0:dst_x1] = lo[src_y0 : src_y0 + h, src_x0 : src_x0 + w]
 
 
 def _build_icons() -> dict[str, np.ndarray]:
@@ -144,8 +175,9 @@ class WeatherIconAnimation(Animation):
     def __init__(self, width: int, height: int):
         super().__init__(width, height, processing_steps=("binarize",))
         self._condition = _FALLBACK
-        self._precip: SnowEffect | RainEffect | None = None
+        self._precip: SnowEffect | RainEffect | LightningEffect | None = None
         self._moon_phase: float = 0.5  # default: full moon
+        self._sun_progress: float = 0.5  # 0=below horizon, 1=fully risen
 
     @override
     def configure(self, **params) -> None:
@@ -153,10 +185,14 @@ class WeatherIconAnimation(Animation):
         spawn_rate = params.get("spawn_rate")
         fall_speed = params.get("fall_speed")
         droplet_size = params.get("droplet_size")
+        strike_interval = params.get("strike_interval")
         wmo_code = params.get("wmo_code")
 
         if "moon_phase" in params:
             self._moon_phase = float(params["moon_phase"])
+
+        if "sun_progress" in params:
+            self._sun_progress = float(params["sun_progress"])
 
         if "condition" in params:
             cond = str(params["condition"])
@@ -187,6 +223,22 @@ class WeatherIconAnimation(Animation):
                         if droplet_size is not None
                         else preset.get("droplet_size", 2),
                     )
+                elif self._condition == "thunderstorm":
+                    preset = (
+                        WMO_THUNDER_PRESETS.get(wmo_code, {})
+                        if wmo_code is not None
+                        else {}
+                    )
+                    self._precip = LightningEffect(
+                        cloud_cols_range=cols_range,
+                        spawn_y=bottom_row + 1,
+                        max_y=self.height - 1,
+                        strike_interval=float(strike_interval)
+                        if strike_interval is not None
+                        else preset.get("strike_interval", 300.0),
+                        text_row=self.height - 8,
+                        text_max_col=12,
+                    )
                 else:
                     self._precip = SnowEffect(
                         cloud_cols_range=cols_range,
@@ -205,6 +257,8 @@ class WeatherIconAnimation(Animation):
                 precip_params["fall_speed"] = fall_speed
             if droplet_size is not None:
                 precip_params["droplet_size"] = droplet_size
+            if strike_interval is not None:
+                precip_params["strike_interval"] = strike_interval
             if precip_params:
                 self._precip.configure(**precip_params)
 
@@ -220,6 +274,21 @@ class WeatherIconAnimation(Animation):
 
         if self._condition == "moon":
             _render_moon(canvas, self._moon_phase)
+        elif self._condition in ("sunrise", "sunset"):
+            icon = self.ICONS[self._condition]
+            ih, iw = icon.shape
+            w = min(self.width, iw)
+            # Shift sun down so it rises into position as progress increases
+            shift = round(_SUN_TRAVEL * (1.0 - self._sun_progress))
+            src_y0 = max(0, -shift)
+            dst_y0 = max(0, shift)
+            src_y1 = min(ih, self.height - shift)
+            if src_y1 > src_y0:
+                dst_y1 = dst_y0 + (src_y1 - src_y0)
+                canvas[dst_y0:dst_y1, :w] = icon[src_y0:src_y1, :w]
+            # Fixed horizon clips everything below the sun's final position
+            if _SUN_HORIZON_ROW < self.height:
+                canvas[_SUN_HORIZON_ROW:, :] = 0.0
         else:
             icon = self.ICONS[self._condition]
             ih, iw = icon.shape

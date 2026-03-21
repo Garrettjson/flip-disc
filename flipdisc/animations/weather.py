@@ -55,6 +55,7 @@ class WeatherAnimation(ComposedAnimation):
     def __init__(self, width: int, height: int):
         super().__init__(width, height)
         self._show_degree = True
+        self._override_condition: str | None = None
         icon = WeatherIconAnimation(width, height)
         icon.configure(condition="cloudy")
         temp = TextAnimation(width - 1, 7)
@@ -68,6 +69,10 @@ class WeatherAnimation(ComposedAnimation):
 
     @override
     def configure(self, **params: Any) -> None:
+        if "override_condition" in params:
+            val = params["override_condition"]
+            self._override_condition: str | None = str(val) if val else None
+
         _icon_keys = {
             "condition",
             "spawn_rate",
@@ -75,12 +80,17 @@ class WeatherAnimation(ComposedAnimation):
             "droplet_size",
             "wmo_code",
             "moon_phase",
+            "strike_interval",
+            "sun_progress",
         }
-        if _icon_keys & params.keys():
+        _trigger_keys = _icon_keys | {"override_condition"}
+        if _trigger_keys & params.keys():
             icon_params: dict[str, Any] = {}
             for k in _icon_keys:
                 if k in params:
                     icon_params[k] = params[k]
+            if self._override_condition:
+                icon_params["condition"] = self._override_condition
             self._update_layer("icon", icon_params)
         if "temp" in params:
             # Store number only — degree + unit drawn in render_gray

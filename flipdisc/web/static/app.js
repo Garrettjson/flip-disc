@@ -95,6 +95,7 @@ function getAnimationParams(animationName) {
       { name: 'loop', label: 'Loop', type: 'checkbox', value: true }
     ],
     clock: [
+      { name: 'style', label: 'Style', type: 'select', options: ['digital', 'analog'], value: 'digital' },
       { name: 'font', label: 'Font', type: 'select', options: availableFonts, value: availableFonts[0] },
       { name: 'format', label: 'Format', type: 'select', options: ['24h', '12h'], value: '24h' },
       { name: 'blink_colon', label: 'Blink Colon', type: 'checkbox', value: false }
@@ -104,9 +105,12 @@ function getAnimationParams(animationName) {
       { name: 'longitude', label: 'Longitude', type: 'number', step: 0.01, value: -74.01 },
       { name: 'unit', label: 'Unit', type: 'select', options: ['F', 'C'], value: 'F' },
       { name: 'show_degree', label: 'Degree Symbol', type: 'checkbox', value: true },
+      { name: 'override_condition', label: 'Condition Override', type: 'select', options: ['', 'sunny', 'partly_cloudy', 'cloudy', 'rain', 'snow', 'thunderstorm', 'fog', 'sunrise', 'sunset'], value: '', optionLabels: ['— API —', 'Sunny', 'Partly Cloudy', 'Cloudy', 'Rain', 'Snow', 'Thunderstorm', 'Fog', 'Sunrise', 'Sunset'] },
+      { name: 'sun_progress', label: 'Sun Progress', type: 'number', min: 0, max: 1, step: 0.05, value: 0.5 },
       { name: 'spawn_rate', label: 'Precip Rate', type: 'number', min: 0.5, max: 10, step: 0.5, value: 2.0 },
       { name: 'fall_speed', label: 'Fall Speed', type: 'number', min: 1, max: 30, step: 0.5, value: 6.0 },
-      { name: 'droplet_size', label: 'Droplet Size', type: 'number', min: 1, max: 3, step: 1, value: 2 }
+      { name: 'droplet_size', label: 'Droplet Size', type: 'number', min: 1, max: 3, step: 1, value: 2 },
+      { name: 'strike_interval', label: 'Strike Interval (s)', type: 'number', min: 1, max: 600, step: 1, value: 300 }
     ]
   };
   return params[animationName] || [];
@@ -136,10 +140,10 @@ function updateAnimationParams() {
     let input;
     if (param.type === 'select') {
       input = document.createElement('select');
-      param.options.forEach(opt => {
+      param.options.forEach((opt, i) => {
         const option = document.createElement('option');
         option.value = opt;
-        option.textContent = opt;
+        option.textContent = param.optionLabels ? param.optionLabels[i] : opt;
         if (opt === param.value) option.selected = true;
         input.appendChild(option);
       });
@@ -299,10 +303,14 @@ animSelect.addEventListener('change', updateAnimationParams);
     if (data.fonts && data.fonts.length > 0) availableFonts = data.fonts;
   } catch (_) { /* keep default */ }
   await loadAnimations();
-  // Auto-select first animation if available
-  if (animSelect.options.length > 0 && !animSelect.value) {
+  // Default to weather animation if available, otherwise first
+  const weatherOpt = Array.from(animSelect.options).findIndex(o => o.value === 'weather');
+  if (weatherOpt >= 0) {
+    animSelect.selectedIndex = weatherOpt;
+  } else if (animSelect.options.length > 0 && !animSelect.value) {
     animSelect.selectedIndex = 0;
   }
+  updateAnimationParams();
   await refreshStatus();
   connectPreviewWS();
   setInterval(refreshStatus, 1000);

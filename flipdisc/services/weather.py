@@ -11,6 +11,7 @@ Usage::
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import datetime
 
 import httpx
 
@@ -52,6 +53,9 @@ WMO_TO_CONDITION: dict[int, str] = {
 _OPEN_METEO_URL = "https://api.open-meteo.com/v1/forecast"
 
 
+_SUN_TRANSITION_MINUTES = 15  # ±15 min window around sunrise/sunset
+
+
 @dataclass
 class WeatherData:
     temp: float
@@ -59,6 +63,7 @@ class WeatherData:
     unit: str  # "F" or "C"
     wmo_code: int | None = None
     moon_phase: float | None = None
+    sun_progress: float | None = None  # 0.0–1.0 during sunrise/sunset window
 
 
 async def fetch_weather(
@@ -88,6 +93,8 @@ async def fetch_weather(
         "longitude": longitude,
         "current_weather": "true",
         "temperature_unit": temp_unit_param,
+        "daily": "sunrise,sunset",
+        "timezone": "auto",
     }
     async with httpx.AsyncClient(timeout=timeout) as client:
         response = await client.get(_OPEN_METEO_URL, params=params)
@@ -106,10 +113,37 @@ async def fetch_weather(
         condition = "moon"
         phase = moon_phase()
 
+    # Compute sunrise/sunset progress
+    sun_prog: float | None = None
+    daily = data.get("daily", {})
+    sunrise_list = daily.get("sunrise", [])
+    sunset_list = daily.get("sunset", [])
+    now_str = current.get("time")
+
+    if now_str and (sunrise_list or sunset_list):
+        now = datetime.fromisoformat(now_str)
+
+        if sunrise_list and sunrise_list[0]:
+            sr = datetime.fromisoformat(sunrise_list[0])
+            window = _SUN_TRANSITION_MINUTES * 60  # seconds
+            diff = (now - sr).total_seconds()
+            if -window <= diff <= window:
+                sun_prog = max(0.0, min(1.0, (diff + window) / (2 * window)))
+                condition = "sunrise"
+
+        if sun_prog is None and sunset_list and sunset_list[0]:
+            ss = datetime.fromisoformat(sunset_list[0])
+            window = _SUN_TRANSITION_MINUTES * 60
+            diff = (now - ss).total_seconds()
+            if -window <= diff <= window:
+                sun_prog = max(0.0, min(1.0, 1.0 - (diff + window) / (2 * window)))
+                condition = "sunset"
+
     return WeatherData(
         temp=temp,
         condition=condition,
         unit=unit.upper(),
         wmo_code=wmo_code,
         moon_phase=phase,
+        sun_progress=sun_prog,
     )

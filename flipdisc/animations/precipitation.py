@@ -2,12 +2,14 @@
 
 SnowEffect renders falling snowflake particles over a cloud icon.
 RainEffect renders falling rain streaks over a cloud icon.
-Future: ThunderEffect, FogEffect.
+LightningEffect renders animated lightning bolts below a cloud icon.
 """
 
 from __future__ import annotations
 
+import enum
 import random
+from collections import defaultdict
 from dataclasses import dataclass
 
 import numpy as np
@@ -268,3 +270,293 @@ class RainEffect:
         self._spawn_timer = 0.0
         self._fall_timer = 0.0
         self._last_spawn_x = None
+
+
+# --- Lightning effect ---
+
+# Per-WMO-code thunderstorm presets
+WMO_THUNDER_PRESETS: dict[int, dict] = {
+    95: {"strike_interval": 300.0},  # Slight/moderate thunderstorm
+    96: {"strike_interval": 180.0},  # Moderate with hail
+    99: {"strike_interval": 60.0},  # Heavy with hail
+}
+
+
+class _LightningState(enum.Enum):
+    IDLE = "idle"
+    LEADER = "leader"
+    FLASH_OFF = "flash_off"
+    HOLDING = "holding"
+
+
+class LightningEffect:
+    """Animated lightning bolt effect.
+
+    Generates procedural bolts using recursive midpoint displacement — the
+    same technique used in video game lightning. A straight line is
+    recursively subdivided, with the midpoint displaced horizontally at
+    each level. At each subdivision there's a chance to fork, producing
+    natural branching that tapers with depth. Strike cycle: bolt grows
+    down row-by-row (LEADER) -> brief flash-off -> bolt reappears and
+    holds (HOLDING) -> clears (IDLE).
+    """
+
+    def __init__(
+        self,
+        cloud_cols_range: tuple[int, int],
+        spawn_y: int,
+        max_y: int,
+        strike_interval: float = 300.0,
+        leader_speed: float = 40.0,
+        text_row: int | None = None,
+        text_max_col: int | None = None,
+        display_width: int = 28,
+    ):
+        self._col_min, self._col_max = cloud_cols_range
+        self._spawn_y = spawn_y
+        self._max_y = max_y
+        self._strike_interval = strike_interval
+        self._leader_speed = leader_speed
+        self._text_row = text_row
+        self._text_max_col = text_max_col
+        self._display_width = display_width
+        self._rng = random.Random()
+
+        self._state = _LightningState.IDLE
+        self._timer: float = 0.0
+        self._bolt: dict[int, set[int]] = {}
+        self._bolt_max_row: int = max_y
+        self._leader_row: float = 0.0
+        self._first_strike = True
+
+    def step(self, dt: float) -> None:
+        self._timer += dt
+
+        if self._state == _LightningState.IDLE:
+            # First strike fires quickly; subsequent after brief pause
+            wait = 1.0 if self._first_strike else 0.3
+            if self._timer >= wait:
+                self._bolt = self._generate_bolt()
+                self._leader_row = float(self._spawn_y)
+                self._state = _LightningState.LEADER
+                self._timer = 0.0
+                self._first_strike = False
+
+        elif self._state == _LightningState.LEADER:
+            self._leader_row += self._leader_speed * dt
+            if self._leader_row >= self._bolt_max_row:
+                self._leader_row = float(self._bolt_max_row)
+                self._state = _LightningState.FLASH_OFF
+                self._timer = 0.0
+
+        elif self._state == _LightningState.FLASH_OFF:
+            if self._timer >= 0.1:
+                self._state = _LightningState.HOLDING
+                self._timer = 0.0
+
+        elif self._state == _LightningState.HOLDING:
+            if self._timer >= self._strike_interval:
+                self._bolt = {}
+                self._state = _LightningState.IDLE
+                self._timer = 0.0
+
+    # Bolt generation tuning — named so the algorithm reads clearly.
+    _INITIAL_DISPLACEMENT = 5.0   # max horizontal jitter at top level
+    _DISPLACEMENT_DECAY = 0.65    # each recursion level shrinks displacement
+    _FORK_DISPLACEMENT_DECAY = 0.6
+    _FORK_BASE_CHANCE = 0.55      # fork probability at depth 0
+    _FORK_CHANCE_DECAY = 0.15     # subtracted per depth level
+    _FORK_MAX_DEPTH = 4
+    _REPEL_STRENGTH = 1.5         # bias (cols) pushing forks apart
+
+    def _generate_bolt(self) -> dict[int, set[int]]:
+        """Generate bolt using recursive midpoint displacement.
+
+        Start with a straight vertical line, recursively subdivide by
+        displacing the midpoint horizontally. At each subdivision there's
+        a depth-decaying chance to fork, producing natural branching.
+        Displacement is clamped to the half-span so Bresenham lines always
+        stay 8-connected — no post-hoc cleanup needed.
+        """
+        rng = self._rng
+        pixels: dict[int, set[int]] = defaultdict(set)
+        col_min, col_max = self._col_min, self._col_max
+        start_col = rng.randint(col_min + 2, col_max - 2)
+        end_col = start_col + rng.randint(-4, 4)
+        end_col = max(2, min(self._display_width - 3, end_col))
+
+        self._subdivide(
+            pixels,
+            r0=self._spawn_y, c0=start_col,
+            r1=self._max_y, c1=end_col,
+            displacement=self._INITIAL_DISPLACEMENT, depth=0,
+        )
+
+        self._bolt_max_row = max(pixels.keys()) if pixels else self._max_y
+        return dict(pixels)
+
+    def _subdivide(
+        self,
+        pixels: dict[int, set[int]],
+        r0: int, c0: int,
+        r1: int, c1: int,
+        displacement: float,
+        depth: int,
+        repel_col: float | None = None,
+    ) -> None:
+        """Recursively subdivide a segment via midpoint displacement.
+
+        At each level the midpoint is displaced horizontally by a random
+        amount. Displacement is clamped to the half-span so that the two
+        child segments can always be rasterized as connected Bresenham
+        lines (diagonal movement covers at most 1 col per row).
+
+        ``repel_col`` biases displacement away from a sibling branch's
+        column so that forked branches spread apart naturally.
+
+        Base case: span <= 2 rows — rasterize directly.
+        """
+        rng = self._rng
+        span = r1 - r0
+
+        if span <= 2:
+            self._rasterize(pixels, r0, c0, r1, c1)
+            return
+
+        # Clamp displacement so the midpoint stays within what Bresenham
+        # can connect: half the span is the max diagonal reach.
+        half_span = span // 2
+        clamped_disp = min(displacement, float(half_span))
+
+        mid_r = (r0 + r1) // 2
+        mid_base = (c0 + c1) / 2
+
+        # Repel bias: push midpoint away from sibling branch
+        repel_bias = 0.0
+        if repel_col is not None:
+            delta = mid_base - repel_col
+            if delta != 0:
+                repel_bias = self._REPEL_STRENGTH * (1 if delta > 0 else -1)
+            else:
+                repel_bias = rng.choice(
+                    [-self._REPEL_STRENGTH, self._REPEL_STRENGTH]
+                )
+
+        offset = rng.gauss(repel_bias, clamped_disp)
+        # Hard clamp: midpoint can't jump further than half_span from base
+        offset = max(-half_span, min(half_span, offset))
+        mid_c = round(mid_base + offset)
+        mid_c = max(1, min(self._display_width - 2, mid_c))
+
+        # Fork: chance decays with depth, requires minimum span
+        fork_chance = self._FORK_BASE_CHANCE - depth * self._FORK_CHANCE_DECAY
+        do_fork = (
+            depth < self._FORK_MAX_DEPTH
+            and span >= 4
+            and fork_chance > 0
+            and rng.random() < fork_chance
+        )
+
+        if do_fork:
+            fork_len = rng.randint(max(2, span // 4), max(3, span * 3 // 4))
+            fork_r1 = min(self._max_y, mid_r + fork_len)
+            # Push fork away from main segment's end column
+            fork_direction = -1 if c1 >= mid_c else 1
+            fork_offset = rng.randint(2, max(2, int(clamped_disp)))
+            fork_c1 = mid_c + fork_direction * fork_offset
+            fork_c1 = max(1, min(self._display_width - 2, fork_c1))
+
+            self._subdivide(
+                pixels, mid_r, mid_c, fork_r1, fork_c1,
+                displacement=displacement * self._FORK_DISPLACEMENT_DECAY,
+                depth=depth + 1,
+                repel_col=float(c1),
+            )
+
+        # Recurse both halves of the main segment
+        child_disp = displacement * self._DISPLACEMENT_DECAY
+        self._subdivide(
+            pixels, r0, c0, mid_r, mid_c,
+            displacement=child_disp, depth=depth + 1,
+        )
+        self._subdivide(
+            pixels, mid_r, mid_c, r1, c1,
+            displacement=child_disp, depth=depth + 1,
+        )
+
+    def _rasterize(
+        self,
+        pixels: dict[int, set[int]],
+        r0: int, c0: int,
+        r1: int, c1: int,
+    ) -> None:
+        """Bresenham line rasterization between two points."""
+        dr = abs(r1 - r0)
+        dc = abs(c1 - c0)
+        sr = 1 if r1 >= r0 else -1
+        sc = 1 if c1 >= c0 else -1
+        err = dr - dc
+        r, c = r0, c0
+        while True:
+            if r <= self._max_y:
+                self._place_pixel(pixels, r, c)
+            if r == r1 and c == c1:
+                break
+            e2 = 2 * err
+            if e2 > -dc:
+                err -= dc
+                r += sr
+            if e2 < dr:
+                err += dr
+                c += sc
+
+    def _in_exclusion_zone(self, row: int, col: int) -> bool:
+        """Check if position is in the text exclusion zone."""
+        return (
+            self._text_row is not None
+            and self._text_max_col is not None
+            and row >= self._text_row
+            and col <= self._text_max_col
+        )
+
+    def _place_pixel(
+        self, pixels: dict[int, set[int]], row: int, col: int
+    ) -> None:
+        """Place a pixel if within display bounds and outside exclusion zone."""
+        if 0 <= col < self._display_width and not self._in_exclusion_zone(
+            row, col
+        ):
+            pixels[row].add(col)
+
+    def render(self, canvas: np.ndarray) -> None:
+        h, w = canvas.shape
+        if self._state in (_LightningState.FLASH_OFF, _LightningState.IDLE):
+            return  # bolt invisible during flash-off and idle
+
+        # LEADER: show rows up to _leader_row; HOLDING: show all rows
+        max_reveal = (
+            int(self._leader_row)
+            if self._state == _LightningState.LEADER
+            else self._bolt_max_row
+        )
+
+        for row, cols in self._bolt.items():
+            if row > max_reveal:
+                continue
+            for col in cols:
+                if 0 <= row < h and 0 <= col < w:
+                    canvas[row, col] = 1.0
+
+    def configure(self, **params) -> None:
+        if "strike_interval" in params:
+            self._strike_interval = float(params["strike_interval"])
+        if "leader_speed" in params:
+            self._leader_speed = float(params["leader_speed"])
+
+    def reset(self) -> None:
+        self._state = _LightningState.IDLE
+        self._timer = 0.0
+        self._bolt = {}
+        self._bolt_max_row = self._max_y
+        self._leader_row = 0.0
+        self._first_strike = True

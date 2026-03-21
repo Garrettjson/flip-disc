@@ -269,6 +269,8 @@ class ApiServer:
                     }
                     if data.moon_phase is not None:
                         conf["moon_phase"] = data.moon_phase
+                    if data.sun_progress is not None:
+                        conf["sun_progress"] = data.sun_progress
                     await self.pipeline.configure_animation(conf)
                 return {
                     "temp": round(data.temp),
@@ -276,6 +278,7 @@ class ApiServer:
                     "unit": data.unit,
                     "wmo_code": data.wmo_code,
                     "moon_phase": data.moon_phase,
+                    "sun_progress": data.sun_progress,
                 }
             except HTTPException:
                 raise
@@ -366,6 +369,8 @@ class ApiServer:
                     }
                     if data.moon_phase is not None:
                         conf["moon_phase"] = data.moon_phase
+                    if data.sun_progress is not None:
+                        conf["sun_progress"] = data.sun_progress
                     await self.pipeline.configure_animation(conf)
                     logger.info(
                         f"Weather updated: {data.temp}{data.unit} {data.condition}"

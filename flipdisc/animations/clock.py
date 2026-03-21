@@ -1,4 +1,4 @@
-"""Clock animation — displays current system time with a narrow colon."""
+"""Clock animation — digital or analog display of current system time."""
 
 from __future__ import annotations
 
@@ -9,33 +9,42 @@ import numpy as np
 
 from flipdisc.fonts.loader import load_font
 
+from .analog_clock import AnalogClockAnimation
 from .base import Animation, register_animation
+
+_STYLES = ("digital", "analog")
 
 
 @register_animation("clock")
 class ClockAnimation(Animation):
-    """Displays the current system time as HH:MM.
-
-    The colon is drawn as two 1px dots (not from the font glyph) to keep it
-    narrow. A 1px gap is added on each side when space permits. Updates
-    automatically every frame from the system clock.
+    """Unified clock animation with digital and analog styles.
 
     Configure with:
-        font        — font name (default "compact")
-        format      — "24h" (default) or "12h"
-        blink_colon — bool, colon hidden when second is odd (default False)
+        style       — "digital" (default) or "analog"
+        font        — font name, digital only (default "standard")
+        format      — "24h" (default) or "12h", digital only
+        blink_colon — bool, digital only (default False)
     """
 
     def __init__(self, width: int, height: int):
         super().__init__(width, height, processing_steps=("binarize",))
+
+        self._style = "digital"
+
+        # Digital state
         self._font_name = "standard"
         self._font = load_font("standard")
         self._format = "24h"
         self._blink_colon = False
 
+        # Analog delegate
+        self._analog = AnalogClockAnimation(width, height)
+
     @override
     def configure(self, **params) -> None:
         super().configure(**params)
+        if "style" in params and str(params["style"]) in _STYLES:
+            self._style = str(params["style"])
         if "font" in params:
             self._font_name = str(params["font"])
             self._font = load_font(self._font_name)
@@ -47,9 +56,15 @@ class ClockAnimation(Animation):
     @override
     def step(self, dt: float) -> None:
         self.current_time += dt
+        self._analog.step(dt)
 
     @override
     def render_gray(self) -> np.ndarray:
+        if self._style == "analog":
+            return self._analog.render_gray()
+        return self._render_digital()
+
+    def _render_digital(self) -> np.ndarray:
         now = datetime.now()
 
         if self._format == "12h":
