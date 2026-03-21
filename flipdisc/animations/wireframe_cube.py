@@ -5,7 +5,8 @@ from typing import override
 
 import numpy as np
 
-from .base import Animation, register_animation
+from .base import register_animation
+from .supersampled import SupersampledAnimation
 
 # Unit cube vertices centered at origin
 _VERTICES = np.array(
@@ -52,12 +53,48 @@ def _rotation_matrix(angle_x: float, angle_y: float, angle_z: float) -> np.ndarr
     return rz @ ry @ rx
 
 
+def _draw_line(
+    frame: np.ndarray,
+    x0: float,
+    y0: float,
+    x1: float,
+    y1: float,
+    thickness: int = 1,
+) -> None:
+    """Draw a line with a square brush of the given thickness."""
+    h, w = frame.shape
+    dx = abs(x1 - x0)
+    dy = abs(y1 - y0)
+    steps = int(max(dx, dy))
+    if steps == 0:
+        return
+
+    xs = (x1 - x0) / steps
+    ys = (y1 - y0) / steps
+
+    i = np.arange(steps + 1)
+    px = np.round(x0 + i * xs).astype(int)
+    py = np.round(y0 + i * ys).astype(int)
+
+    if thickness <= 1:
+        valid = (px >= 0) & (px < w) & (py >= 0) & (py < h)
+        frame[py[valid], px[valid]] = 1.0
+    else:
+        half = thickness // 2
+        for ox in range(-half, -half + thickness):
+            for oy in range(-half, -half + thickness):
+                qx = px + ox
+                qy = py + oy
+                valid = (qx >= 0) & (qx < w) & (qy >= 0) & (qy < h)
+                frame[qy[valid], qx[valid]] = 1.0
+
+
 @register_animation("wireframe_cube")
-class WireframeCube(Animation):
+class WireframeCube(SupersampledAnimation):
     """Rotating 3D wireframe cube, oldschool demoscene style."""
 
     def __init__(self, width: int, height: int):
-        super().__init__(width, height, processing_steps=("binarize",))
+        super().__init__(width, height, supersample=2, processing_steps=("binarize",))
 
         self.size = 0.35  # cube size as fraction of display
         self.rotation_speed = 1.0  # radians per second
@@ -66,6 +103,9 @@ class WireframeCube(Animation):
         self.axis_z = 0.3
 
         self.angle = 0.0
+
+        # Line thickness: next odd >= supersample so edges survive downsampling
+        self._thickness = self.supersample | 1
 
     @override
     def configure(self, **params):
@@ -88,8 +128,8 @@ class WireframeCube(Animation):
         self.angle += self.rotation_speed * dt
 
     @override
-    def render_gray(self) -> np.ndarray:
-        frame = np.zeros((self.height, self.width), dtype=np.float32)
+    def render_hires(self) -> np.ndarray:
+        frame = np.zeros((self.hheight, self.hwidth), dtype=np.float32)
 
         # Rotate vertices
         rot = _rotation_matrix(
@@ -100,8 +140,8 @@ class WireframeCube(Animation):
         rotated = _VERTICES @ rot.T
 
         # Weak perspective projection (z pushes things slightly smaller/larger)
-        scale = min(self.width, self.height) * self.size
-        cx, cy = self.width / 2, self.height / 2
+        scale = min(self.hwidth, self.hheight) * self.size
+        cx, cy = self.hwidth / 2, self.hheight / 2
         depth_scale = 6.0  # distance from camera; larger = flatter
 
         factor = depth_scale / (depth_scale + rotated[:, 2])  # (8,) broadcast
@@ -109,7 +149,7 @@ class WireframeCube(Animation):
         projected[:, 0] = cx + rotated[:, 0] * scale * factor
         projected[:, 1] = cy + rotated[:, 1] * scale * factor
 
-        # Draw edges
+        # Draw edges with thickness scaled to survive downsampling
         for i0, i1 in _EDGES:
             _draw_line(
                 frame,
@@ -117,25 +157,7 @@ class WireframeCube(Animation):
                 projected[i0, 1],
                 projected[i1, 0],
                 projected[i1, 1],
+                thickness=self._thickness,
             )
 
         return frame
-
-
-def _draw_line(frame: np.ndarray, x0: float, y0: float, x1: float, y1: float) -> None:
-    """Draw a 1px line using Bresenham's algorithm."""
-    h, w = frame.shape
-    dx = abs(x1 - x0)
-    dy = abs(y1 - y0)
-    steps = int(max(dx, dy))
-    if steps == 0:
-        return
-
-    xs = (x1 - x0) / steps
-    ys = (y1 - y0) / steps
-
-    i = np.arange(steps + 1)
-    px = np.round(x0 + i * xs).astype(int)
-    py = np.round(y0 + i * ys).astype(int)
-    valid = (px >= 0) & (px < w) & (py >= 0) & (py < h)
-    frame[py[valid], px[valid]] = 1.0

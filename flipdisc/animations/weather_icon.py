@@ -14,6 +14,8 @@ from typing import ClassVar, override
 import numpy as np
 from skimage.io import imread
 
+from flipdisc.gfx.postprocessing import downsample
+
 from .base import Animation
 from .precipitation import (
     WMO_RAIN_PRESETS,
@@ -111,8 +113,8 @@ def _render_moon(canvas: np.ndarray, phase: float) -> None:
             elif col <= term_x:
                 hi[row, col] = 1.0
 
-    # Downsample: reshape into (H, s, W, s) blocks and average
-    lo = hi.reshape(patch_size, s, patch_size, s).mean(axis=(1, 3))
+    # Downsample: block-average hi-res patch to output resolution
+    lo = downsample(hi, s)
 
     # Blit patch onto canvas, clipping to canvas bounds
     dst_y = cy - r

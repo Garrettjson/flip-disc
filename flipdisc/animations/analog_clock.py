@@ -6,7 +6,7 @@ from typing import override
 
 import numpy as np
 
-from .base import Animation
+from .supersampled import SupersampledAnimation
 
 
 def _draw_line(
@@ -30,55 +30,58 @@ def _draw_line(
     frame[py[valid], px[valid]] = 1.0
 
 
-class AnalogClockAnimation(Animation):
+class AnalogClockAnimation(SupersampledAnimation):
     """Analog clock showing current system time with hour/minute hands."""
 
     def __init__(self, width: int, height: int):
-        super().__init__(width, height, processing_steps=("binarize",))
+        super().__init__(width, height, supersample=4, processing_steps=("binarize",))
 
-        self.cx = (width - 1) / 2  # 13.5 for 28px
-        self.cy = (height - 1) / 2
-        self.radius = 12.5
-        self.minute_hand_length = 10.0
-        self.hour_hand_length = 7.0
+        # Hi-res geometry for circle and minor dots
+        self.cx = (self.hwidth - 1) / 2
+        self.cy = (self.hheight - 1) / 2
+        dim = min(self.hwidth, self.hheight)
+        self.radius = 0.45 * dim
+        self._minor_dot_r = 0.84 * self.radius
 
-        # Pre-compute the static clock face (circle + markers)
+        # Output-space geometry for major markers and hands (1px at native res)
+        self._out_cx = (width - 1) / 2
+        self._out_cy = (height - 1) / 2
+        out_dim = min(width, height)
+        out_radius = 0.45 * out_dim
+        self._out_major_outer = 0.92 * out_radius
+        self._out_major_inner = 0.80 * out_radius
+        self._out_minute = 0.80 * out_radius
+        self._out_hour = 0.56 * out_radius
+
+        # Pre-compute the static clock face (circle + minor dots only)
         self._face = self._build_face()
 
     def _build_face(self) -> np.ndarray:
-        """Render circle outline and hour markers to a cached array."""
-        face = np.zeros((self.height, self.width), dtype=np.float32)
+        """Render circle outline and minor hour dots to a cached array."""
+        face = np.zeros((self.hheight, self.hwidth), dtype=np.float32)
 
         # Draw circle outline via distance-from-center threshold
-        yy, xx = np.mgrid[0 : self.height, 0 : self.width]
+        half_thick = 0.5 * self.supersample
+        yy, xx = np.mgrid[0 : self.hheight, 0 : self.hwidth]
         dist = np.sqrt((xx - self.cx) ** 2 + (yy - self.cy) ** 2)
-        circle_mask = (dist >= self.radius - 0.5) & (dist <= self.radius + 0.5)
+        circle_mask = (dist >= self.radius - half_thick) & (
+            dist <= self.radius + half_thick
+        )
         face[circle_mask] = 1.0
 
-        # Draw hour markers
+        # Minor hour dots — grid-snapped squares for clean 1-output-pixel dots
+        s = self.supersample
         for h in range(12):
+            if h % 3 == 0:
+                continue
             angle = 2 * math.pi * h / 12
             sin_a = math.sin(angle)
             cos_a = math.cos(angle)
-
-            if h % 3 == 0:
-                # Major markers (12, 3, 6, 9): 2px radial bars inward
-                outer_r = self.radius - 1.0
-                inner_r = self.radius - 2.5
-                _draw_line(
-                    face,
-                    self.cx + outer_r * sin_a,
-                    self.cy - outer_r * cos_a,
-                    self.cx + inner_r * sin_a,
-                    self.cy - inner_r * cos_a,
-                )
-            else:
-                # Minor markers: 1px dot just inside the circle
-                dot_r = self.radius - 2.0
-                px = int(round(self.cx + dot_r * sin_a))
-                py = int(round(self.cy - dot_r * cos_a))
-                if 0 <= px < self.width and 0 <= py < self.height:
-                    face[py, px] = 1.0
+            dot_cx = round(self.cx + self._minor_dot_r * sin_a)
+            dot_cy = round(self.cy - self._minor_dot_r * cos_a)
+            gx = (dot_cx // s) * s
+            gy = (dot_cy // s) * s
+            face[gy : gy + s, gx : gx + s] = 1.0
 
         return face
 
@@ -87,31 +90,48 @@ class AnalogClockAnimation(Animation):
         self.current_time += dt
 
     @override
-    def render_gray(self) -> np.ndarray:
-        frame = self._face.copy()
+    def render_hires(self) -> np.ndarray:
+        return self._face.copy()
 
+    @override
+    def render_gray(self) -> np.ndarray:
+        # Downsample the hi-res face (circle + minor dots)
+        frame = super().render_gray()
+
+        # Draw major markers at output resolution (1px lines)
+        for h in range(0, 12, 3):
+            angle = 2 * math.pi * h / 12
+            sin_a = math.sin(angle)
+            cos_a = math.cos(angle)
+            _draw_line(
+                frame,
+                self._out_cx + self._out_major_outer * sin_a,
+                self._out_cy - self._out_major_outer * cos_a,
+                self._out_cx + self._out_major_inner * sin_a,
+                self._out_cy - self._out_major_inner * cos_a,
+            )
+
+        # Draw hands at output resolution (1px lines)
         now = datetime.now()
         h = now.hour % 12
         m = now.minute
 
-        # Hour hand — moves smoothly between hours based on minute
         hour_angle = 2 * math.pi * (h + m / 60) / 12
         _draw_line(
             frame,
-            self.cx,
-            self.cy,
-            self.cx + self.hour_hand_length * math.sin(hour_angle),
-            self.cy - self.hour_hand_length * math.cos(hour_angle),
+            self._out_cx,
+            self._out_cy,
+            self._out_cx + self._out_hour * math.sin(hour_angle),
+            self._out_cy - self._out_hour * math.cos(hour_angle),
         )
 
-        # Minute hand
         minute_angle = 2 * math.pi * m / 60
         _draw_line(
             frame,
-            self.cx,
-            self.cy,
-            self.cx + self.minute_hand_length * math.sin(minute_angle),
-            self.cy - self.minute_hand_length * math.cos(minute_angle),
+            self._out_cx,
+            self._out_cy,
+            self._out_cx + self._out_minute * math.sin(minute_angle),
+            self._out_cy - self._out_minute * math.cos(minute_angle),
         )
 
         return frame
